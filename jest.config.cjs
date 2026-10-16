@@ -4,6 +4,7 @@ const createJestConfig = nextJest({ dir: "./" });
 
 const customJestConfig = {
   clearMocks: true,
+  testPathIgnorePatterns: ["/node_modules/", "\\.e2e\\.spec\\.ts$"],
   testEnvironment: "node",
   setupFilesAfterEnv: ["<rootDir>/jest.setup.ts"],
   moduleNameMapper: {

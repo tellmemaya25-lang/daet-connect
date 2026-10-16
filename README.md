@@ -1,6 +1,6 @@
 # CONNECT-DAET.ph — tours subsystem starter
 
-This repository currently contains the first tours feature: operator accreditation registration and the admin approval queue. It uses the App Router, Server Actions, Supabase Auth/Storage/Postgres, and mobile-first Tailwind UI.
+This repository contains the CONNECT-DAET tours subsystem, including operator and local-guide accreditation flows with admin approval queues. It uses the App Router, Server Actions, Supabase Auth/Storage/Postgres, and mobile-first Tailwind UI.
 
 ## Local setup
 
@@ -8,6 +8,7 @@ This repository currently contains the first tours feature: operator accreditati
 2. Copy `.env.example` to `.env.local`; fill in the Supabase URL, anon/publishable key, and service-role key. Never commit `.env.local` or expose the service-role key to browser code.
 3. Create a **private** Supabase Storage bucket named `tours-operator-documents` (or set `TOURS_OPERATOR_DOCUMENTS_BUCKET`). Set its maximum file size to at least 5 MB and allow `image/jpeg`, `image/png`, `image/webp`, and `application/pdf`. The service-role key uploads files from the server; private signed URLs are generated for admins and expire after 10 minutes.
 4. Run `npm run dev`.
+5. Run `npm test` for unit/component/action tests. `npm run test:e2e` runs the Playwright mobile registration flow in Supabase preview mode; install the browser once with `npx playwright install chromium` if needed.
 
 The app expects the existing `get_my_role()` RPC to return the signed-in user's `profiles.role` value. Registration is limited to `tourist`/`operator` accounts; the role is re-checked on the server. Admin approval sets `profiles.role = 'operator'` and the dashboard also requires an `approved` `tours_operators.accreditation_status` row. The platform-wide sign-in/profile-provisioning flow is not part of this feature; the pages link to `/login`, so wire that path to the shared Supabase Auth experience before launch.
 
@@ -29,3 +30,16 @@ The three `*_url` columns contain **private Storage object paths**, not public U
 - Operator pages must continue checking both role and accreditation status in future Server Actions, not just hide dashboard links in the UI.
 - Admin document links are short-lived signed URLs. Do not make this bucket public.
 - Images are recompressed in the browser before upload (QR images retain lossless PNG output where possible); PDFs are uploaded unchanged.
+
+## Guide accreditation
+
+Guide registration adds `/tours/guide/register`, `/tours/guide/pending`, `/tours/guide/dashboard`, `/tours/guide/my-qr`, and the admin queue at `/tours/admin/guides`. The application stays pending until an admin approves it; the dashboard and downloadable/printable badge QR each re-check both `profiles.role = 'guide'` and the approved status on the server.
+
+The guide ID document goes to a separate **private** Storage bucket named `tours-guide-sensitive-documents` (or `TOURS_GUIDE_SENSITIVE_BUCKET`). Configure it with a 5 MB max object size and `image/jpeg`, `image/png`, `image/webp`, `application/pdf`. Storage reads are not exposed to browser clients: an admin-only Server Action selects only the stored object path using service_role and returns a 3-minute signed download link. The QR payload contains only the public guide row UUID; it never includes ID numbers, document paths, or consent data. Sensitive-table reads and writes and private-link creation emit a minimal structured `guide-sensitive-audit` event to server logs containing actor ID, guide ID, operation, outcome, and timestamp—but no ID number, document path, URL, or file content. No audit table is assumed or added; configure the hosting platform’s server-log retention/access policy before production use.
+
+No guide schema is created or migrated. The existing database should enforce at most one `tours_guides` row per `user_id` to avoid concurrent duplicate first applications. Since the repository has no generated database types or DDL, `src/lib/tours/guide-contract.ts` centralizes the current expected field names:
+
+- `tours_guides`: `id`, `user_id`, `full_name`, `contact_phone`, `bio`, `accreditation_status`, `rejection_reason`, `reviewed_by`, `reviewed_at`, `created_at`.
+- `tours_guide_sensitive_info` (service_role only, with a unique `guide_id` for upsert): `guide_id`, `id_type`, `id_number`, `id_document_path`, `consent_full_id_display`, `consent_given_at`.
+
+Verify those names against the existing locked schema before production use, and ensure the existing `profiles.role` type/policies already accept the `guide` role value. The Server Action rejects unchecked consent before upload or database writes, generates `consent_given_at` on the server, inserts the public guide profile with the authenticated session client, and writes the sensitive row only via the server-side service-role client. No Client Component or Server Component queries the sensitive table. Existing RLS policies must allow an authenticated applicant to read their own status and insert/update their own guide row, allow the admin queue’s authenticated query to select pending public rows, and prevent public readers from seeing unapproved profiles; the private sensitive table and private Storage bucket must remain inaccessible to browser clients. No policy or schema changes are bundled here.
