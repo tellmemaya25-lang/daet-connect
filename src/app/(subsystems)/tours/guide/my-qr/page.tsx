@@ -43,7 +43,7 @@ export default async function MyGuideQrPage() {
   const qrDataUrl = await createGuideQrPngDataUrl(guide.id);
   return (
     <PageFrame>
-      <div className="mb-7 text-center">
+      <div className="mb-7 text-center print:hidden">
         <p className="text-xs font-black uppercase tracking-[0.18em] text-daet-leaf">Approved guide</p>
         <h1 className="mt-2 text-3xl font-black text-daet-ink">My QR Code</h1>
         <p className="mt-2 text-sm leading-6 text-daet-ink/65">Download the PNG or print a badge insert. The QR contains only your guide reference—never your ID number or document.</p>
