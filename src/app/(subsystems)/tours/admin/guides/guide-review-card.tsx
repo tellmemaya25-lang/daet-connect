@@ -39,7 +39,7 @@ export function GuideSensitiveDocumentAccess({ guideId }: { guideId: string }) {
   );
 }
 
-export function GuideReviewCard({ guide }: { guide: GuideAdminRecord }) {
+export function GuideReviewCard({ guide }: { guide: GuideAdminRecord & { full_name: string } }) {
   const [state, formAction, pending] = useActionState<GuideActionState, FormData>(
     reviewGuideApplication,
     INITIAL_GUIDE_REVIEW_STATE,
