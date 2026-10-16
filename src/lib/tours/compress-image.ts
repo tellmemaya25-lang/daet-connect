@@ -26,7 +26,7 @@ function loadBitmap(file: File): Promise<ImageBitmap | HTMLImageElement> {
  * optimized as JPEG; QR images use lossless PNG where possible to keep the
  * code's high-contrast edges readable. PDFs are deliberately left untouched.
  */
-export async function compressOperatorImage(
+export async function compressImageFile(
   file: File,
   preserveQrSharpness = false,
 ): Promise<File> {
@@ -84,3 +84,6 @@ export async function compressOperatorImage(
     }
   }
 }
+
+/** Backwards-compatible name used by the operator registration form. */
+export const compressOperatorImage = compressImageFile;
