@@ -3,10 +3,9 @@ import { redirect } from "next/navigation";
 import { Notice } from "@/components/ui/notice";
 import { PageFrame } from "@/components/ui/page-frame";
 import { OperatorRegistrationForm } from "@/app/(subsystems)/tours/operator/operator-registration-form";
-import { OPERATOR_OWN_STATUS_SELECT, OPERATOR_TABLE, OPERATOR_USER_ID_COLUMN } from "@/lib/tours/operator-contract";
 import { getAuthenticatedSession } from "@/lib/tours/server-auth";
+import { getOwnOperatorApplicationStatus } from "@/lib/tours/operator-status";
 import { isSupabaseConfigured } from "@/lib/supabase/env";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
 
@@ -68,14 +67,9 @@ export default async function OperatorRegistrationPage() {
     );
   }
 
-  const supabase = await createSupabaseServerClient();
-  const { data: application, error } = await supabase
-    .from(OPERATOR_TABLE)
-    .select(OPERATOR_OWN_STATUS_SELECT)
-    .eq(OPERATOR_USER_ID_COLUMN, session.user.id)
-    .maybeSingle();
+  const statusResult = await getOwnOperatorApplicationStatus(session.user.id);
 
-  if (error) {
+  if (!statusResult.ok) {
     return (
       <PageFrame>
         <div className="mx-auto max-w-2xl py-8">
@@ -87,6 +81,7 @@ export default async function OperatorRegistrationPage() {
     );
   }
 
+  const application = statusResult.application;
   if (application?.accreditation_status === "pending") redirect("/tours/operator/pending");
   if (application?.accreditation_status === "approved" && session.role === "operator") {
     redirect("/tours/operator/dashboard");
