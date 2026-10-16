@@ -1,0 +1,178 @@
+import Link from "next/link";
+import { Notice } from "@/components/ui/notice";
+import { PageFrame } from "@/components/ui/page-frame";
+import {
+  OPERATOR_APPLICATION_SELECT,
+  OPERATOR_DOCUMENT_BUCKET,
+  OPERATOR_TABLE,
+  type OperatorApplicationRecord,
+} from "@/lib/tours/operator-contract";
+import { getAuthenticatedSession } from "@/lib/tours/server-auth";
+import { isSupabaseAdminConfigured, isSupabaseConfigured } from "@/lib/supabase/env";
+import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { OperatorReviewCard, type OperatorDocumentLinks } from "@/app/(subsystems)/tours/admin/operators/review-card";
+
+export const dynamic = "force-dynamic";
+
+const PAGE_SIZE = 20;
+const SIGNED_URL_TTL_SECONDS = 10 * 60;
+type SearchParams = Promise<{ page?: string }>;
+
+function safePage(value?: string): number {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 1) return 1;
+  return Math.min(parsed, 100_000);
+}
+
+export default async function AdminOperatorQueuePage({
+  searchParams,
+}: {
+  searchParams: SearchParams;
+}) {
+  if (!isSupabaseConfigured()) {
+    return <PageFrame><Notice variant="warning" title="Supabase setup is needed">Configure Supabase before opening the admin review queue.</Notice></PageFrame>;
+  }
+
+  let session;
+  try {
+    session = await getAuthenticatedSession();
+  } catch {
+    session = { user: null, role: null, error: "Supabase could not be reached." };
+  }
+
+  if (!session.user) {
+    return (
+      <PageFrame>
+        <div className="mx-auto max-w-2xl py-8">
+          <Notice variant="info" title="Admin sign-in required">
+            <Link href={`/login?next=${encodeURIComponent("/tours/admin/operators")}`} className="font-bold underline underline-offset-4">Sign in</Link> with your Tourism Office admin account to review applications.
+          </Notice>
+        </div>
+      </PageFrame>
+    );
+  }
+  if (session.error || session.role !== "admin") {
+    return (
+      <PageFrame>
+        <div className="mx-auto max-w-2xl py-8">
+          <Notice variant="error" title="You do not have access to this queue">
+            {session.error ?? "Only accounts with the admin role can view operator applications."}
+          </Notice>
+        </div>
+      </PageFrame>
+    );
+  }
+  if (!isSupabaseAdminConfigured()) {
+    return (
+      <PageFrame adminNav>
+        <div className="mx-auto max-w-2xl py-8">
+          <Notice variant="error" title="Server storage access is not configured">
+            Set the service-role key on the server. It is required to make short-lived links to private application documents.
+          </Notice>
+        </div>
+      </PageFrame>
+    );
+  }
+
+  const params = await searchParams;
+  const page = safePage(params.page);
+  const firstRow = (page - 1) * PAGE_SIZE;
+  const admin = createSupabaseAdminClient();
+  const { data: rows, error } = await admin
+    .from(OPERATOR_TABLE)
+    .select(OPERATOR_APPLICATION_SELECT)
+    .eq("accreditation_status", "pending")
+    .order("created_at", { ascending: true })
+    .range(firstRow, firstRow + PAGE_SIZE - 1);
+
+  if (error) {
+    return (
+      <PageFrame adminNav>
+        <div className="mx-auto max-w-3xl">
+          <Notice variant="error" title="The review queue could not be loaded">Please refresh. No application information has been changed.</Notice>
+        </div>
+      </PageFrame>
+    );
+  }
+
+  const applications = (rows ?? []) as OperatorApplicationRecord[];
+  const allPaths = applications
+    .flatMap((application) => [
+      application.dti_registration_url,
+      application.business_permit_url,
+      application.gcash_qr_url,
+    ])
+    .filter((path): path is string => typeof path === "string" && path.length > 0);
+  const uniquePaths = [...new Set(allPaths)];
+  const signedUrlByPath = new Map<string, string>();
+
+  // One bulk Storage call for this page, avoiding a per-application (N+1) lookup.
+  if (uniquePaths.length > 0) {
+    try {
+      const { data: signedFiles, error: signingError } = await admin.storage
+        .from(OPERATOR_DOCUMENT_BUCKET)
+        .createSignedUrls(uniquePaths, SIGNED_URL_TTL_SECONDS, { download: true });
+      if (!signingError && signedFiles) {
+        signedFiles.forEach((file) => {
+          if (file.path && file.signedUrl) signedUrlByPath.set(file.path, file.signedUrl);
+        });
+      }
+    } catch {
+      // The queue can still render if Storage is temporarily unavailable.
+      console.error("Could not create signed operator document links.");
+    }
+  }
+
+  const hasNextPage = applications.length === PAGE_SIZE;
+
+  return (
+    <PageFrame adminNav>
+      <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p className="text-xs font-black uppercase tracking-[0.18em] text-daet-leaf">Tourism Office</p>
+          <h1 className="mt-2 text-3xl font-black tracking-tight text-daet-ink sm:text-4xl">Operator applications</h1>
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-daet-ink/65">Review the submitted business details and documents, then approve or return the application with a clear reason.</p>
+        </div>
+        <span className="inline-flex min-h-10 items-center self-start rounded-full bg-amber-50 px-4 text-sm font-bold text-amber-900 sm:self-auto">Pending · page {page}</span>
+      </div>
+
+      <Notice variant="info" className="mb-6">
+        Applicant documents are private and the links below expire in 10 minutes. Open them only on an authorized device; do not forward them.
+      </Notice>
+
+      {applications.length === 0 ? (
+        <section className="rounded-3xl border border-daet-ink/10 bg-white px-6 py-14 text-center shadow-sm">
+          <span className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-emerald-50 text-2xl text-emerald-700" aria-hidden="true">✓</span>
+          <h2 className="mt-4 text-xl font-black text-daet-ink">You’re all caught up</h2>
+          <p className="mt-2 text-sm text-daet-ink/60">There are no pending operator applications on this page.</p>
+        </section>
+      ) : (
+        <div className="space-y-5">
+          {applications.map((application) => {
+            const documents: OperatorDocumentLinks = {
+              dti: application.dti_registration_url
+                ? signedUrlByPath.get(application.dti_registration_url) ?? null
+                : null,
+              permit: application.business_permit_url
+                ? signedUrlByPath.get(application.business_permit_url) ?? null
+                : null,
+              gcash: application.gcash_qr_url
+                ? signedUrlByPath.get(application.gcash_qr_url) ?? null
+                : null,
+            };
+            return <OperatorReviewCard key={application.id} application={application} documents={documents} />;
+          })}
+        </div>
+      )}
+
+      <nav className="mt-7 flex items-center justify-between" aria-label="Application pages">
+        {page > 1 ? (
+          <Link href={`/tours/admin/operators?page=${page - 1}`} className="inline-flex min-h-11 items-center rounded-full border border-daet-ink/15 px-5 text-sm font-bold text-daet-ink hover:bg-white">← Previous</Link>
+        ) : <span />}
+        {hasNextPage ? (
+          <Link href={`/tours/admin/operators?page=${page + 1}`} className="inline-flex min-h-11 items-center rounded-full border border-daet-ink/15 px-5 text-sm font-bold text-daet-ink hover:bg-white">Next →</Link>
+        ) : <span />}
+      </nav>
+    </PageFrame>
+  );
+}
