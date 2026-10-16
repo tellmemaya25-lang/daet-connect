@@ -40,15 +40,24 @@ export default async function MyGuideQrPage() {
     return <PageFrame><Notice variant="error" title="Your guide QR is not enabled">Your profile is approved, but the account role does not match. Contact the Tourism Office administrator.</Notice></PageFrame>;
   }
 
+  const { data: profile, error: profileError } = await supabase
+    .from("profiles")
+    .select("full_name")
+    .eq("id", session.user.id)
+    .maybeSingle();
+  if (profileError || !profile?.full_name) {
+    return <PageFrame><Notice variant="error" title="Your guide profile name is unavailable">Contact the Tourism Office so your public profile can be checked.</Notice></PageFrame>;
+  }
+
   const qrDataUrl = await createGuideQrPngDataUrl(guide.id);
   return (
     <PageFrame>
-      <div className="mb-7 text-center">
+      <div className="mb-7 text-center print:hidden">
         <p className="text-xs font-black uppercase tracking-[0.18em] text-daet-leaf">Approved guide</p>
         <h1 className="mt-2 text-3xl font-black text-daet-ink">My QR Code</h1>
         <p className="mt-2 text-sm leading-6 text-daet-ink/65">Download the PNG or print a badge insert. The QR contains only your guide reference—never your ID number or document.</p>
       </div>
-      <GuideQrBadge guideId={guide.id} fullName={guide.full_name} qrDataUrl={qrDataUrl} />
+      <GuideQrBadge guideId={guide.id} fullName={profile.full_name} qrDataUrl={qrDataUrl} />
     </PageFrame>
   );
 }

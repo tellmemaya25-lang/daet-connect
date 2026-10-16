@@ -7,6 +7,7 @@ import {
   validateGuideRegistration,
 } from "@/lib/tours/guide-validation";
 import {
+  GUIDE_NOTES_COLUMN,
   GUIDE_PUBLIC_FIELDS,
   GUIDE_SENSITIVE_DOCUMENT_BUCKET,
   GUIDE_SENSITIVE_FIELDS,
@@ -139,7 +140,7 @@ export async function submitGuideRegistration(
   let publicRowWritten = false;
   let sensitiveRowWritten = false;
   let resubmittingRejected = false;
-  let previousRejectionReason: string | null = null;
+  let previousAccreditationNotes: string | null = null;
   let guideId = "";
 
   try {
@@ -194,7 +195,7 @@ export async function submitGuideRegistration(
     sessionClient = await createSupabaseServerClient();
     const { data: existing, error: existingError } = await sessionClient
       .from(GUIDE_TABLE)
-      .select(`id,${GUIDE_STATUS_COLUMN},rejection_reason`)
+      .select(`id,${GUIDE_STATUS_COLUMN},${GUIDE_NOTES_COLUMN}`)
       .eq(GUIDE_USER_ID_COLUMN, session.user.id)
       .maybeSingle();
 
@@ -213,7 +214,7 @@ export async function submitGuideRegistration(
 
     guideId = requestedGuideId;
     resubmittingRejected = existing?.accreditation_status === "rejected";
-    previousRejectionReason = existing?.rejection_reason ?? null;
+    previousAccreditationNotes = existing?.[GUIDE_NOTES_COLUMN] ?? null;
 
     // Server timestamp is captured only after explicit true consent, before the
     // private row is created. It is never accepted from a client-provided field.
@@ -268,11 +269,12 @@ export async function submitGuideRegistration(
     uploadedPath = objectPath;
 
     const publicValues = {
-      [GUIDE_PUBLIC_FIELDS.fullName]: profile.data.fullName,
       [GUIDE_PUBLIC_FIELDS.contactPhone]: profile.data.contactPhone,
       [GUIDE_PUBLIC_FIELDS.bio]: profile.data.bio,
+      [GUIDE_PUBLIC_FIELDS.consent]: true,
+      [GUIDE_PUBLIC_FIELDS.consentAt]: consentGivenAt,
       [GUIDE_STATUS_COLUMN]: "pending",
-      rejection_reason: null,
+      [GUIDE_NOTES_COLUMN]: null,
       reviewed_by: null,
       reviewed_at: null,
     };
@@ -305,17 +307,29 @@ export async function submitGuideRegistration(
     }
     publicRowWritten = true;
 
+    try {
+      const { error: profileNameSyncError } = await sessionClient
+        .from("profiles")
+        .update({ full_name: profile.data.fullName })
+        .eq("id", session.user.id);
+      if (profileNameSyncError) {
+        console.error("Could not sync guide applicant name to profile.");
+      }
+    } catch {
+      console.error("Could not sync guide applicant name to profile.");
+    }
+
     const sensitiveValues = {
       [GUIDE_SENSITIVE_FIELDS.guideId]: guideId,
+      [GUIDE_SENSITIVE_FIELDS.fullLegalName]: profile.data.fullName,
       [GUIDE_SENSITIVE_FIELDS.idType]: profile.data.idType,
       [GUIDE_SENSITIVE_FIELDS.idNumber]: profile.data.idNumber,
       [GUIDE_SENSITIVE_FIELDS.documentPath]: objectPath,
-      [GUIDE_SENSITIVE_FIELDS.consent]: true,
-      [GUIDE_SENSITIVE_FIELDS.consentAt]: consentGivenAt,
     };
 
     // The service-role client is used only in this Server Action. The sensitive
-    // table has no RLS policies; consent is true and timestamped before this write.
+    // table has no RLS policies; the server-generated consent timestamp and true
+    // consent flag are stored on the public guide row before this write.
     let sensitiveWriteFailed = false;
     try {
       const { error } = await admin
@@ -338,7 +352,7 @@ export async function submitGuideRegistration(
           .from(GUIDE_TABLE)
           .update({
             [GUIDE_STATUS_COLUMN]: "rejected",
-            rejection_reason: previousRejectionReason,
+            [GUIDE_NOTES_COLUMN]: previousAccreditationNotes,
           })
           .eq("id", existing.id)
           .eq(GUIDE_USER_ID_COLUMN, session.user.id);
@@ -540,7 +554,7 @@ export async function reviewGuideApplication(
       .from(GUIDE_TABLE)
       .update({
         [GUIDE_STATUS_COLUMN]: decision,
-        rejection_reason: decision === "rejected" ? rejectionReason : null,
+        [GUIDE_NOTES_COLUMN]: decision === "rejected" ? rejectionReason : null,
         reviewed_by: session.user.id,
         reviewed_at: new Date().toISOString(),
       })

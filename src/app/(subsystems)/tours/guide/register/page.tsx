@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { Notice } from "@/components/ui/notice";
 import { PageFrame } from "@/components/ui/page-frame";
 import { GuideRegistrationForm } from "@/app/(subsystems)/tours/guide/guide-registration-form";
-import { GUIDE_OWN_STATUS_SELECT, GUIDE_TABLE, GUIDE_USER_ID_COLUMN } from "@/lib/tours/guide-contract";
+import { GUIDE_NOTES_COLUMN, GUIDE_OWN_STATUS_SELECT, GUIDE_TABLE, GUIDE_USER_ID_COLUMN } from "@/lib/tours/guide-contract";
 import { getAuthenticatedSession } from "@/lib/tours/server-auth";
 import { isSupabaseConfigured } from "@/lib/supabase/env";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -64,5 +64,5 @@ export default async function GuideRegistrationPage() {
     return <PageFrame><div className="mx-auto max-w-2xl py-8"><Notice variant="error" title="Your guide application is approved, but the account role needs attention">Contact the Tourism Office administrator before continuing.</Notice></div></PageFrame>;
   }
 
-  return <PageFrame><GuideRegistrationForm rejectionReason={guide?.accreditation_status === "rejected" ? guide.rejection_reason : null} /></PageFrame>;
+  return <PageFrame><GuideRegistrationForm rejectionReason={guide?.accreditation_status === "rejected" ? guide[GUIDE_NOTES_COLUMN] : null} /></PageFrame>;
 }

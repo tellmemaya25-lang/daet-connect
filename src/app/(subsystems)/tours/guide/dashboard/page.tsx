@@ -39,11 +39,20 @@ export default async function GuideDashboardPage() {
     return <PageFrame><Notice variant="error" title="Guide access is not enabled">Your application is approved, but your account role does not match. Contact the Tourism Office administrator.</Notice></PageFrame>;
   }
 
+  const { data: profile, error: profileError } = await supabase
+    .from("profiles")
+    .select("full_name")
+    .eq("id", session.user.id)
+    .maybeSingle();
+  if (profileError || !profile?.full_name) {
+    return <PageFrame><Notice variant="error" title="Your guide profile name is unavailable">Contact the Tourism Office so your public profile can be checked.</Notice></PageFrame>;
+  }
+
   return (
     <PageFrame>
       <section className="rounded-3xl border border-daet-ink/10 bg-white p-6 shadow-card sm:p-10">
         <p className="text-xs font-black uppercase tracking-[0.18em] text-daet-leaf">Approved guide</p>
-        <h1 className="mt-2 text-3xl font-black text-daet-ink">Welcome, {guide.full_name}.</h1>
+        <h1 className="mt-2 text-3xl font-black text-daet-ink">Welcome, {profile.full_name}.</h1>
         <p className="mt-3 max-w-2xl text-sm leading-6 text-daet-ink/65">Your accreditation is approved. Your public guide profile can now be verified using your badge QR.</p>
         <Link href="/tours/guide/my-qr" className="mt-7 inline-flex min-h-12 items-center justify-center rounded-full bg-daet-forest px-6 text-sm font-bold text-white transition hover:bg-daet-ink">Open My QR Code</Link>
       </section>

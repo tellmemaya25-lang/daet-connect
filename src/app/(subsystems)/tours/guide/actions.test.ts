@@ -1,9 +1,11 @@
 import {
   getGuideSensitiveDocumentLink,
+  reviewGuideApplication,
   submitGuideRegistration,
 } from "@/app/(subsystems)/tours/guide/actions";
 import {
   INITIAL_GUIDE_DOCUMENT_LINK_STATE,
+  INITIAL_GUIDE_REVIEW_STATE,
   INITIAL_GUIDE_SUBMISSION_STATE,
 } from "@/lib/tours/guide-action-state";
 import { getAuthenticatedSession } from "@/lib/tours/server-auth";
@@ -80,7 +82,15 @@ describe("guide registration Server Action", () => {
       maybeSingle: jest.fn().mockResolvedValue({ data: null, error: null }),
       insert: jest.fn().mockResolvedValue({ error: null }),
     };
-    const sessionClient = { from: jest.fn(() => publicQuery) };
+    const profileUpdateQuery = {
+      eq: jest.fn().mockResolvedValue({ error: null }),
+    };
+    const profileQuery = {
+      update: jest.fn().mockReturnValue(profileUpdateQuery),
+    };
+    const sessionClient = {
+      from: jest.fn((table: string) => table === "profiles" ? profileQuery : publicQuery),
+    };
     mockCreateSessionClient.mockResolvedValue(sessionClient as never);
 
     const sensitiveQuery = {
@@ -101,25 +111,37 @@ describe("guide registration Server Action", () => {
     expect(result.status).toBe("success");
     expect(publicQuery.insert).toHaveBeenCalledWith(expect.objectContaining({
       id: guideId,
-      user_id: applicantId,
-      full_name: "Maya Santos",
+      profile_id: applicantId,
+      contact_phone: "+63 917 123 4567",
+      bio: "I have guided visitors around Daet for several years.",
+      consent_full_id_display: true,
+      consent_given_at: expect.any(String),
       accreditation_status: "pending",
+      accreditation_notes: null,
     }));
+    expect(profileQuery.update).toHaveBeenCalledWith({ full_name: "Maya Santos" });
     expect(admin.from).toHaveBeenCalledWith("tours_guide_sensitive_info");
     expect(sensitiveQuery.upsert).toHaveBeenCalledWith(expect.objectContaining({
       guide_id: guideId,
+      full_legal_name: "Maya Santos",
       id_type: "philippine_national_id",
       id_number: "1234-5678-9012",
-      consent_full_id_display: true,
-      consent_given_at: expect.any(String),
+      id_document_path: expect.stringContaining(`${applicantId}/${guideId}/`),
     }), { onConflict: "guide_id" });
 
-    const sensitiveWrite = sensitiveQuery.upsert.mock.invocationCallOrder[0];
-    const publicInsert = publicQuery.insert.mock.invocationCallOrder[0];
-    expect(publicInsert).toBeLessThan(sensitiveWrite);
+    const publicValues = publicQuery.insert.mock.calls[0][0];
+    expect(publicValues).not.toHaveProperty("full_name");
+    expect(Date.parse(publicValues.consent_given_at)).not.toBeNaN();
+    expect(publicValues.consent_given_at).not.toBe("1900-01-01T00:00:00.000Z");
     const sensitiveValues = sensitiveQuery.upsert.mock.calls[0][0];
-    expect(Date.parse(sensitiveValues.consent_given_at)).not.toBeNaN();
-    expect(sensitiveValues.consent_given_at).not.toBe("1900-01-01T00:00:00.000Z");
+    expect(sensitiveValues).not.toHaveProperty("consent_full_id_display");
+    expect(sensitiveValues).not.toHaveProperty("consent_given_at");
+
+    const publicInsert = publicQuery.insert.mock.invocationCallOrder[0];
+    const profileNameSync = profileQuery.update.mock.invocationCallOrder[0];
+    const sensitiveWrite = sensitiveQuery.upsert.mock.invocationCallOrder[0];
+    expect(publicInsert).toBeLessThan(profileNameSync);
+    expect(profileNameSync).toBeLessThan(sensitiveWrite);
     expect(mockAudit).toHaveBeenCalledWith(expect.objectContaining({
       actorUserId: applicantId,
       guideId,
@@ -128,6 +150,50 @@ describe("guide registration Server Action", () => {
     }));
     expect(JSON.stringify(mockAudit.mock.calls)).not.toContain("1234-5678-9012");
     expect(JSON.stringify(mockAudit.mock.calls)).not.toContain("identity.pdf");
+  });
+});
+
+describe("guide application review", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockCreateAdmin.mockReset();
+    mockGetSession.mockReset();
+  });
+
+  it("stores an admin rejection note in accreditation_notes", async () => {
+    mockGetSession.mockResolvedValue({ user: { id: adminId } as never, role: "admin", error: null });
+
+    const guideLookupQuery = {
+      select: jest.fn().mockReturnThis(),
+      eq: jest.fn().mockReturnThis(),
+      maybeSingle: jest.fn().mockResolvedValue({ data: { id: guideId, profile_id: applicantId }, error: null }),
+    };
+    const guideUpdateQuery = {
+      eq: jest.fn().mockReturnThis(),
+      select: jest.fn().mockReturnThis(),
+      maybeSingle: jest.fn().mockResolvedValue({ data: { id: guideId }, error: null }),
+    };
+    const guideTable = {
+      select: jest.fn(() => guideLookupQuery),
+      update: jest.fn((_values: Record<string, unknown>) => guideUpdateQuery),
+    };
+    const admin = { from: jest.fn(() => guideTable) };
+    mockCreateAdmin.mockReturnValue(admin as never);
+
+    const accreditationNotes = "Please upload a clearer image of your government-issued ID.";
+    const result = await reviewGuideApplication(
+      INITIAL_GUIDE_REVIEW_STATE,
+      makeFormData({ guideId, decision: "rejected", rejectionReason: accreditationNotes }),
+    );
+
+    expect(result.status).toBe("success");
+    expect(guideTable.update).toHaveBeenCalledWith(expect.objectContaining({
+      accreditation_status: "rejected",
+      accreditation_notes: accreditationNotes,
+      reviewed_by: adminId,
+      reviewed_at: expect.any(String),
+    }));
+    expect(guideTable.update.mock.calls[0][0]).not.toHaveProperty("rejection_reason");
   });
 });
 

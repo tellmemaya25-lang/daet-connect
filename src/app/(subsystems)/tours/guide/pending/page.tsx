@@ -2,7 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Notice } from "@/components/ui/notice";
 import { PageFrame } from "@/components/ui/page-frame";
-import { GUIDE_OWN_STATUS_SELECT, GUIDE_TABLE, GUIDE_USER_ID_COLUMN } from "@/lib/tours/guide-contract";
+import { GUIDE_NOTES_COLUMN, GUIDE_OWN_STATUS_SELECT, GUIDE_TABLE, GUIDE_USER_ID_COLUMN } from "@/lib/tours/guide-contract";
 import { getAuthenticatedSession } from "@/lib/tours/server-auth";
 import { isSupabaseConfigured } from "@/lib/supabase/env";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -45,7 +45,7 @@ export default async function GuidePendingPage() {
           <span className="inline-flex rounded-full bg-rose-50 px-3 py-1 text-xs font-black uppercase tracking-wide text-rose-700">Changes requested</span>
           <h1 className="mt-4 text-3xl font-black text-daet-ink">Please update your guide application</h1>
           <p className="mt-3 text-sm leading-6 text-daet-ink/70">The Tourism Office could not approve the application as submitted. Review the note below and send an updated profile and ID.</p>
-          {guide.rejection_reason ? <div className="mt-5 rounded-2xl bg-rose-50 p-4 text-sm leading-6 text-rose-950"><p className="font-bold">Reviewer’s note</p><p className="mt-1">{guide.rejection_reason}</p></div> : null}
+          {guide[GUIDE_NOTES_COLUMN] ? <div className="mt-5 rounded-2xl bg-rose-50 p-4 text-sm leading-6 text-rose-950"><p className="font-bold">Reviewer’s note</p><p className="mt-1">{guide[GUIDE_NOTES_COLUMN]}</p></div> : null}
           <Link href="/tours/guide/register" className="mt-7 inline-flex min-h-12 items-center justify-center rounded-full bg-daet-forest px-6 text-sm font-bold text-white transition hover:bg-daet-ink">Update application</Link>
         </section>
       </PageFrame>
