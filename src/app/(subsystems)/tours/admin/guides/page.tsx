@@ -59,7 +59,23 @@ export default async function AdminGuideQueuePage({ searchParams }: { searchPara
     return <PageFrame><div className="mx-auto max-w-3xl"><Notice variant="error" title="Guide applications could not be loaded">Refresh the queue. No review decision was changed.</Notice></div></PageFrame>;
   }
 
-  const guides = (rows ?? []) as GuideAdminRecord[];
+  const guideRows = (rows ?? []) as Omit<GuideAdminRecord, "full_name">[];
+  let fullNameByProfileId = new Map<string, string>();
+  if (guideRows.length > 0) {
+    const profileIds = [...new Set(guideRows.map((guide) => guide.profile_id))];
+    const { data: profiles, error: profileError } = await supabase
+      .from("profiles")
+      .select("id,full_name")
+      .in("id", profileIds);
+    if (profileError) {
+      return <PageFrame><div className="mx-auto max-w-3xl"><Notice variant="error" title="Guide applicant names could not be loaded">Refresh the queue. No review decision was changed.</Notice></div></PageFrame>;
+    }
+    fullNameByProfileId = new Map((profiles ?? []).map((profile) => [profile.id, profile.full_name ?? "Name unavailable"]));
+  }
+  const guides: GuideAdminRecord[] = guideRows.map((guide) => ({
+    ...guide,
+    full_name: fullNameByProfileId.get(guide.profile_id) ?? "Name unavailable",
+  }));
   const hasNext = guides.length === PAGE_SIZE;
 
   return (
