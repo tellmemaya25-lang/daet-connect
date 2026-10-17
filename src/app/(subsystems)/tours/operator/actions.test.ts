@@ -88,8 +88,9 @@ describe("operator Server Action authorization", () => {
     expect(result.status).toBe("success");
     expect(storageBucket.upload).toHaveBeenCalledTimes(3);
     expect(operatorQuery.insert).toHaveBeenCalledWith(expect.objectContaining({
-      user_id: applicantId,
+      profile_id: applicantId,
       accreditation_status: "pending",
+      accreditation_notes: null,
       business_name: "Bagasbas Coast Tours",
     }));
   });
@@ -126,7 +127,7 @@ describe("operator Server Action authorization", () => {
       eq: jest.fn().mockReturnThis(),
       update: jest.fn().mockReturnThis(),
       maybeSingle: jest.fn()
-        .mockResolvedValueOnce({ data: { id: "a18d3d3a-e1f0-4ec4-9f41-8518746ab123", user_id: "7f1c1988-d352-46bb-9ac8-37a8d0197a11" }, error: null })
+        .mockResolvedValueOnce({ data: { id: "a18d3d3a-e1f0-4ec4-9f41-8518746ab123", profile_id: "7f1c1988-d352-46bb-9ac8-37a8d0197a11" }, error: null })
         .mockResolvedValueOnce({ data: { id: "a18d3d3a-e1f0-4ec4-9f41-8518746ab123" }, error: null }),
     };
     const profileQuery = {
