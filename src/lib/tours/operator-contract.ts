@@ -17,9 +17,69 @@ export const OPERATOR_NOTES_COLUMN = "accreditation_notes";
 export const OPERATOR_DOCUMENT_BUCKET =
   process.env.TOURS_OPERATOR_DOCUMENTS_BUCKET ?? "tours-operator-documents";
 
+/**
+ * Columns that must never be readable by `anon` or `authenticated`.
+ *
+ * Row-level security decides which ROWS a role sees; it cannot hide COLUMNS of
+ * a visible row. The "Public can view approved operators" policy would expose
+ * these on every approved operator, so column-level REVOKE/GRANT enforces the
+ * boundary instead — see
+ * supabase/migrations/20261017130000_operator_document_privacy.sql.
+ *
+ * These are readable server-side with service_role only, which bypasses both
+ * RLS and column grants.
+ */
+export const OPERATOR_RESTRICTED_COLUMNS = [
+  "contact_person",
+  "contact_email",
+  "contact_phone",
+  "dti_registration_url",
+  "business_permit_url",
+  "gcash_qr_url",
+  "accreditation_notes",
+  "reviewed_by",
+  "reviewed_at",
+] as const;
+
+/**
+ * Columns granted to `anon`. Public catalogue fields only.
+ *
+ * `profile_id` is intentionally absent for anon but granted to `authenticated`,
+ * because the tours_packages RLS policies match ownership through
+ * `tours_operators.profile_id = auth.uid()`. Policy expressions run with the
+ * invoking user's privileges, so revoking it there would break every package
+ * query.
+ */
+export const OPERATOR_PUBLIC_COLUMNS = [
+  "id",
+  "business_name",
+  "business_description",
+  "business_address",
+  "accreditation_status",
+  "created_at",
+  "updated_at",
+] as const;
+
+/**
+ * The only tours_operators columns a session client may select.
+ *
+ * Column privileges for `authenticated` are exactly
+ * OPERATOR_PUBLIC_COLUMNS plus `profile_id`, so any session-client query must
+ * stay within this set or Postgres rejects it.
+ */
+export const OPERATOR_SESSION_SAFE_COLUMNS = [
+  ...OPERATOR_PUBLIC_COLUMNS,
+  "profile_id",
+] as const;
+
+/**
+ * SERVICE-ROLE ONLY. Selects restricted columns, so it must never be used with
+ * a session client: `anon`/`authenticated` have no column grant for them.
+ */
 export const OPERATOR_APPLICATION_SELECT =
   "id,profile_id,business_name,contact_person,contact_email,contact_phone,business_address,dti_registration_url,business_permit_url,gcash_qr_url,accreditation_status,accreditation_notes,reviewed_by,reviewed_at,created_at";
 
+/** SERVICE-ROLE ONLY. Includes accreditation_notes, a restricted column. */
 export const OPERATOR_OWN_STATUS_SELECT =
   "id,accreditation_status,accreditation_notes,created_at";
 

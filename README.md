@@ -28,6 +28,8 @@ The three `*_url` columns contain **private Storage object paths**, not public U
 - Application documents are private. The browser sends them to a Server Action; the server checks the authenticated user, role, total/per-file size, MIME signature, and ownership path before upload.
 - The action uses the service-role client only on the server and only after checking the user's Supabase session. Admin listing/review repeats a server-side `get_my_role() === 'admin'` check.
 - Operator pages must continue checking both role and accreditation status in future Server Actions, not just hide dashboard links in the UI.
+- Operator business documents (`dti_registration_url`, `business_permit_url`, `gcash_qr_url`), direct contact details (`contact_person`, `contact_email`, `contact_phone`), and admin review fields (`accreditation_notes`, `reviewed_by`, `reviewed_at`) are **service-role only**. Row-level security cannot hide columns of a visible row, and the `Public can view approved operators` policy would otherwise expose them for every approved operator, so the boundary is enforced with column-level `REVOKE`/`GRANT` in `supabase/migrations/20261017130000_operator_document_privacy.sql` (draft, not applied). `OPERATOR_RESTRICTED_COLUMNS` and `OPERATOR_SESSION_SAFE_COLUMNS` in `operator-contract.ts` mirror that migration and are covered by tests.
+- `authenticated` must keep `SELECT` on `tours_operators.id`, `.profile_id`, and `.accreditation_status`: the `tours_packages` family of RLS policies match ownership through `tours_operators.profile_id = auth.uid()`, and policy expressions run with the invoking user's privileges. Revoking those columns would break every package query.
 - Admin document links are short-lived signed URLs. Do not make this bucket public.
 - Images are recompressed in the browser before upload (QR images retain lossless PNG output where possible); PDFs are uploaded unchanged.
 
@@ -61,6 +63,8 @@ Pricing and stops are written through the `SECURITY DEFINER` RPCs `replace_packa
 4. **No nonnegative-price, pax-range, or single-default-variant constraints**, all of which were application-layer rules only.
 
 The migration file documents pre-flight checks to run first, because existing rows that violate the new constraints will make it fail. Package media upload is **not** implemented: `PACKAGE_STORAGE_BUCKET` is declared but unused, and `cover_image_url`/`gallery_urls` store the references the operator supplies.
+
+A second draft, `supabase/migrations/20261017130000_operator_document_privacy.sql`, is also **unapplied**. It closes the operator document/contact exposure described under Security notes using column-level grants, and revokes the unused `INSERT`/`UPDATE`/`DELETE`/`TRUNCATE` privileges from `anon` and `authenticated`. The two drafts are independent and can be applied separately, but the privacy draft must be applied before launch.
 
 ## Guide accreditation
 
