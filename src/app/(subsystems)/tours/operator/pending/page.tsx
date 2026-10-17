@@ -2,10 +2,9 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Notice } from "@/components/ui/notice";
 import { PageFrame } from "@/components/ui/page-frame";
-import { OPERATOR_OWN_STATUS_SELECT, OPERATOR_TABLE, OPERATOR_USER_ID_COLUMN } from "@/lib/tours/operator-contract";
 import { getAuthenticatedSession } from "@/lib/tours/server-auth";
+import { getOwnOperatorApplicationStatus } from "@/lib/tours/operator-status";
 import { isSupabaseConfigured } from "@/lib/supabase/env";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
 
@@ -47,20 +46,17 @@ export default async function OperatorPendingPage() {
   }
   if (session.role === "admin") redirect("/tours/admin/operators");
 
-  const supabase = await createSupabaseServerClient();
-  const { data: application, error } = await supabase
-    .from(OPERATOR_TABLE)
-    .select(OPERATOR_OWN_STATUS_SELECT)
-    .eq(OPERATOR_USER_ID_COLUMN, session.user.id)
-    .maybeSingle();
+  const statusResult = await getOwnOperatorApplicationStatus(session.user.id);
 
-  if (error) {
+  if (!statusResult.ok) {
     return (
       <PageFrame>
         <div className="mx-auto max-w-xl py-8"><Notice variant="error" title="Status could not be loaded">Please refresh in a moment. Your documents remain private.</Notice></div>
       </PageFrame>
     );
   }
+
+  const application = statusResult.application;
   if (!application) redirect("/tours/operator/register");
   if (application.accreditation_status === "approved" && session.role === "operator") {
     redirect("/tours/operator/dashboard");
@@ -72,9 +68,9 @@ export default async function OperatorPendingPage() {
           <span className="inline-flex rounded-full bg-rose-50 px-3 py-1 text-xs font-black uppercase tracking-wide text-rose-700">Changes requested</span>
           <h1 className="mt-4 text-3xl font-black text-daet-ink">Please update your application</h1>
           <p className="mt-3 text-sm leading-6 text-daet-ink/70">The Tourism Office could not approve the documents as submitted. You can review the note and send an updated application.</p>
-          {application.rejection_reason ? (
+          {application.accreditation_notes ? (
             <div className="mt-5 rounded-2xl bg-rose-50 p-4 text-sm leading-6 text-rose-950">
-              <p className="font-bold">Reviewer’s note</p><p className="mt-1">{application.rejection_reason}</p>
+              <p className="font-bold">Reviewer’s note</p><p className="mt-1">{application.accreditation_notes}</p>
             </div>
           ) : null}
           <Link href="/tours/operator/register" className="mt-7 inline-flex min-h-12 items-center justify-center rounded-full bg-daet-forest px-6 text-sm font-bold text-white transition hover:bg-daet-ink">Update application</Link>

@@ -59,7 +59,7 @@ export default async function AdminGuideQueuePage({ searchParams }: { searchPara
     return <PageFrame><div className="mx-auto max-w-3xl"><Notice variant="error" title="Guide applications could not be loaded">Refresh the queue. No review decision was changed.</Notice></div></PageFrame>;
   }
 
-  const guideRows = (rows ?? []) as Omit<GuideAdminRecord, "full_name">[];
+  const guideRows = (rows ?? []) as GuideAdminRecord[];
   let fullNameByProfileId = new Map<string, string>();
   if (guideRows.length > 0) {
     const profileIds = [...new Set(guideRows.map((guide) => guide.profile_id))];
@@ -72,7 +72,7 @@ export default async function AdminGuideQueuePage({ searchParams }: { searchPara
     }
     fullNameByProfileId = new Map((profiles ?? []).map((profile) => [profile.id, profile.full_name ?? "Name unavailable"]));
   }
-  const guides: GuideAdminRecord[] = guideRows.map((guide) => ({
+  const guides: (GuideAdminRecord & { full_name: string })[] = guideRows.map((guide) => ({
     ...guide,
     full_name: fullNameByProfileId.get(guide.profile_id) ?? "Name unavailable",
   }));

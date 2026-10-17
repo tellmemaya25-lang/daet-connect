@@ -45,9 +45,12 @@ export interface GuideOwnStatusRecord {
   created_at: string;
 }
 
-export interface GuideAdminRecord extends GuideOwnStatusRecord {
+export interface GuideAdminRecord {
+  id: string;
   profile_id: string;
-  full_name: string;
   contact_phone: string;
   bio: string;
+  accreditation_status: GuideAccreditationStatus;
+  accreditation_notes: string | null;
+  created_at: string;
 }

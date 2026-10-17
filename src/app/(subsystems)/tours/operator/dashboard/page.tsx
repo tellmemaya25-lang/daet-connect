@@ -2,10 +2,9 @@ import { redirect } from "next/navigation";
 import { Notice } from "@/components/ui/notice";
 import { PageFrame } from "@/components/ui/page-frame";
 import { canAccessOperatorDashboard } from "@/lib/tours/operator-access";
-import { OPERATOR_OWN_STATUS_SELECT, OPERATOR_TABLE, OPERATOR_USER_ID_COLUMN } from "@/lib/tours/operator-contract";
 import { getAuthenticatedSession } from "@/lib/tours/server-auth";
+import { getOwnOperatorApplicationStatus } from "@/lib/tours/operator-status";
 import { isSupabaseConfigured } from "@/lib/supabase/env";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
 
@@ -27,16 +26,13 @@ export default async function OperatorDashboardPage() {
     return <PageFrame><Notice variant="error" title="We could not verify your account">{session.error ?? "Your role could not be verified."}</Notice></PageFrame>;
   }
 
-  const supabase = await createSupabaseServerClient();
-  const { data: application, error } = await supabase
-    .from(OPERATOR_TABLE)
-    .select(OPERATOR_OWN_STATUS_SELECT)
-    .eq(OPERATOR_USER_ID_COLUMN, session.user.id)
-    .maybeSingle();
+  const statusResult = await getOwnOperatorApplicationStatus(session.user.id);
 
-  if (error) {
+  if (!statusResult.ok) {
     return <PageFrame><Notice variant="error" title="Accreditation could not be checked">Access is paused until your accreditation status can be verified.</Notice></PageFrame>;
   }
+
+  const application = statusResult.application;
   if (!application) redirect("/tours/operator/register");
   if (application.accreditation_status !== "approved") {
     if (application.accreditation_status === "rejected") redirect("/tours/operator/register");
@@ -51,8 +47,16 @@ export default async function OperatorDashboardPage() {
       <section className="rounded-3xl border border-daet-ink/10 bg-white p-6 shadow-card sm:p-10">
         <p className="text-xs font-black uppercase tracking-[0.18em] text-daet-leaf">Accredited operator</p>
         <h1 className="mt-2 text-3xl font-black text-daet-ink">Welcome to your operator dashboard.</h1>
-        <p className="mt-3 max-w-2xl text-sm leading-6 text-daet-ink/65">Your accreditation is approved. Package management and booking tools will appear here as those tours modules are added.</p>
-        <div className="mt-7 inline-flex min-h-10 items-center rounded-full bg-emerald-50 px-4 text-sm font-bold text-emerald-800">Accreditation approved</div>
+        <p className="mt-3 max-w-2xl text-sm leading-6 text-daet-ink/65">Your accreditation is approved. Create and manage your tour packages, then submit them for Tourism Office review.</p>
+        <div className="mt-7 flex flex-col gap-3 sm:flex-row sm:items-center">
+          <a
+            href="/tours/operator/packages"
+            className="inline-flex min-h-12 items-center justify-center gap-2 rounded-full bg-daet-forest px-7 text-sm font-bold text-white shadow-sm transition hover:bg-daet-ink focus:outline-none focus:ring-4 focus:ring-daet-forest/20"
+          >
+            Manage packages <span aria-hidden="true">→</span>
+          </a>
+          <span className="inline-flex min-h-10 items-center rounded-full bg-emerald-50 px-4 text-sm font-bold text-emerald-800">Accreditation approved</span>
+        </div>
       </section>
     </PageFrame>
   );

@@ -106,8 +106,14 @@ function validatePackageCore(input: PackageCoreInput): string | null {
   if (!input || typeof input !== "object") return "Package details are invalid.";
   if (typeof input.title !== "string" || !input.title.trim()) return "Title is required.";
   if (typeof input.locationName !== "string" || !input.locationName.trim()) return "Location is required.";
-  if (!Number.isFinite(input.durationValue) || input.durationValue <= 0) {
-    return "Duration must be a positive number.";
+  if (
+    !Number.isFinite(input.durationValue) ||
+    !Number.isInteger(input.durationValue) ||
+    input.durationValue <= 0
+  ) {
+    // duration_value is an integer column; a fractional value would be rounded
+    // silently by Postgres, so reject it before the write.
+    return "Duration must be a whole number greater than zero.";
   }
   if (input.durationType !== "hours" && input.durationType !== "days") {
     return "Invalid duration type.";
@@ -386,7 +392,13 @@ export async function submitPackageForReview(packageId: string): Promise<ActionR
       .select("variant_name,min_pax,max_pax,price_per_pax,flat_price,is_default")
       .eq(PRICE_VARIANT_FIELDS.packageId, packageId);
 
-    if (variantsError || !variantRows || variantRows.length === 0) {
+    // A query failure must not be reported as an empty collection: RLS, schema,
+    // or connectivity problems would otherwise look like missing operator input.
+    if (variantsError) {
+      actionError("submitPackageForReview:price_variants", variantsError);
+      return { success: false, error: "Price variants could not be verified. Please try again." };
+    }
+    if (!variantRows || variantRows.length === 0) {
       return { success: false, error: "Add at least one price variant before submitting." };
     }
     const variants = variantRows.map((row) => ({
@@ -411,7 +423,11 @@ export async function submitPackageForReview(packageId: string): Promise<ActionR
       .eq(STOP_FIELDS.packageId, packageId)
       .order(STOP_FIELDS.stopOrder, { ascending: true });
 
-    if (stopsError || !stopRows || stopRows.length === 0) {
+    if (stopsError) {
+      actionError("submitPackageForReview:stops", stopsError);
+      return { success: false, error: "Map stops could not be verified. Please try again." };
+    }
+    if (!stopRows || stopRows.length === 0) {
       return { success: false, error: "Add at least one map stop before submitting." };
     }
     const stops = stopRows.map((row) => ({
@@ -495,7 +511,11 @@ export async function getPackageDetail(
       .eq(PACKAGE_FIELDS.operatorId, auth.operatorId)
       .maybeSingle();
 
-    if (error || !data) {
+    if (error) {
+      actionError("getPackageDetail", error);
+      return { success: false, error: "Package details could not be loaded. Please try again." };
+    }
+    if (!data) {
       return { success: false, error: "Package not found or you do not have access." };
     }
 

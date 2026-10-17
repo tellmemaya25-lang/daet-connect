@@ -12,13 +12,13 @@ This repository contains the CONNECT-DAET tours subsystem, including operator an
 
 The app expects the existing `get_my_role()` RPC to return the signed-in user's `profiles.role` value. Registration is limited to `tourist`/`operator` accounts; the role is re-checked on the server. Admin approval sets `profiles.role = 'operator'` and the dashboard also requires an `approved` `tours_operators.accreditation_status` row. The platform-wide sign-in/profile-provisioning flow is not part of this feature; the pages link to `/login`, so wire that path to the shared Supabase Auth experience before launch.
 
-The existing schema should enforce at most one operator application per `user_id` (including rejected applications, which are updated on resubmission). The action checks current status and uses a conditional update, but database uniqueness is still required to prevent simultaneous first submissions from creating duplicates.
+The live schema enforces at most one operator application per `profile_id` through the `tours_operators_profile_id_key` unique constraint (including rejected applications, which are updated on resubmission). The action also checks current status and uses a conditional update.
 
 ## Existing schema integration
 
 No database tables, enums, or migrations are created by this feature. Because the repository started without generated Supabase types or the schema DDL, the field mapping is centralized in `src/lib/tours/operator-contract.ts` and currently expects:
 
-- `tours_operators`: `id`, `user_id`, `business_name`, `contact_person`, `contact_email`, `contact_phone`, `business_address`, `dti_registration_url`, `business_permit_url`, `gcash_qr_url`, `accreditation_status`, `rejection_reason`, `reviewed_by`, `reviewed_at`, and `created_at`.
+- `tours_operators`: `id`, `profile_id`, `business_name`, `business_description`, `business_address` (nullable), `contact_person`, `contact_email`, `contact_phone`, `dti_registration_url`, `business_permit_url`, `gcash_qr_url`, `accreditation_status`, `accreditation_notes`, `reviewed_by`, `reviewed_at`, `created_at`, and `updated_at`.
 - `profiles`: `id` (same UUID as `auth.users.id`) and `role`.
 
 The three `*_url` columns contain **private Storage object paths**, not public URLs. If the verified schema uses different names, change the centralized contract and the select/update payloads to match it; do not add or recreate tables. The feature fails closed if an authenticated role cannot be read.
@@ -28,8 +28,43 @@ The three `*_url` columns contain **private Storage object paths**, not public U
 - Application documents are private. The browser sends them to a Server Action; the server checks the authenticated user, role, total/per-file size, MIME signature, and ownership path before upload.
 - The action uses the service-role client only on the server and only after checking the user's Supabase session. Admin listing/review repeats a server-side `get_my_role() === 'admin'` check.
 - Operator pages must continue checking both role and accreditation status in future Server Actions, not just hide dashboard links in the UI.
+- Operator business documents (`dti_registration_url`, `business_permit_url`, `gcash_qr_url`), direct contact details (`contact_person`, `contact_email`, `contact_phone`), and admin review fields (`accreditation_notes`, `reviewed_by`, `reviewed_at`) are **service-role only**. Row-level security cannot hide columns of a visible row, and the `Public can view approved operators` policy would otherwise expose them for every approved operator, so the boundary is enforced with column-level `REVOKE`/`GRANT` in `supabase/migrations/20261017130000_operator_document_privacy.sql` (draft, not applied). `OPERATOR_RESTRICTED_COLUMNS` and `OPERATOR_SESSION_SAFE_COLUMNS` in `operator-contract.ts` mirror that migration and are covered by tests.
+- `authenticated` must keep `SELECT` on `tours_operators.id`, `.profile_id`, and `.accreditation_status`: the `tours_packages` family of RLS policies match ownership through `tours_operators.profile_id = auth.uid()`, and policy expressions run with the invoking user's privileges. Revoking those columns would break every package query.
 - Admin document links are short-lived signed URLs. Do not make this bucket public.
 - Images are recompressed in the browser before upload (QR images retain lossless PNG output where possible); PDFs are uploaded unchanged.
+
+## Operator package management (Module 3)
+
+Approved operators manage tour packages at `/tours/operator/packages` (list), `/tours/operator/packages/new` (create draft), and `/tours/operator/packages/{packageId}` (edit details, pricing, and map stops, then submit for review). The operator dashboard links to the list.
+
+Field mapping lives in `src/lib/tours/package-contract.ts` and shared validators in `src/lib/tours/package-validation.ts`. Expected tables:
+
+- `tours_packages`: `id`, `operator_id` (FK to `tours_operators.id`), `title`, `description`, `location_name`, `duration_value` (integer), `duration_type`, `inclusions`, `exclusions`, `cover_image_url`, `gallery_urls`, `status`, `created_at`, `updated_at`.
+- `tours_package_price_variants`: `id`, `package_id`, `variant_name`, `min_pax`, `max_pax`, `price_per_pax`, `flat_price`, `is_default`, `created_at`.
+- `tours_package_stops`: `id`, `package_id`, `stop_order`, `location_name`, `latitude`, `longitude`, `description`, `estimated_duration_minutes` (integer), `created_at`.
+
+`duration_value` and `estimated_duration_minutes` are integer columns, so the validators reject fractional values rather than letting Postgres round them silently.
+
+### Authorization boundary
+
+Package Server Actions use the authenticated session client, so RLS is the real boundary. Each action independently re-verifies the session, `operator` role, approved accreditation, package ownership, and draft status; the page-level gate in `src/lib/tours/operator-package-access.ts` is routing/UX only and must never be relied on for authorization.
+
+Pricing and stops are written through the `SECURITY DEFINER` RPCs `replace_package_price_variants` and `replace_package_stops`, which re-check ownership and draft status in the database and replace the whole child collection in one transaction. `stop_order` is derived from array ordinality, never from a client-supplied value.
+
+`submitPackageForReview` currently validates children and then updates the status as separate requests. `supabase/migrations/20261017120000_module3_package_authorization.sql` adds a `submit_package_for_review(p_package_id uuid)` RPC that performs validation and the `draft → pending_review` transition inside a single transaction; switch the action to that RPC after the migration is applied.
+
+### Pending database migration
+
+`supabase/migrations/20261017120000_module3_package_authorization.sql` is a **draft that has not been applied**. It is required before this module works end to end, because the live database currently has:
+
+1. **No policies on `tours_package_stops`** despite RLS being enabled. Reads return an empty set with no error, so operators can save stops (the RPC bypasses RLS) but can never read them back, and submission always fails with “Add at least one map stop before submitting.”
+2. **Unrestricted owner policies** on `tours_packages` and `tours_package_price_variants` (`FOR ALL`, ownership check only, no draft or accreditation gate), which allow an operator to self-publish a package or edit the pricing of a published package directly through PostgREST, bypassing admin review.
+3. **No admin policy on `profiles`**, which is why the guide review queue renders “Name unavailable”: the admin page reads `profiles.id,full_name` with the session client and RLS filters every row that is not the admin’s own profile.
+4. **No nonnegative-price, pax-range, or single-default-variant constraints**, all of which were application-layer rules only.
+
+The migration file documents pre-flight checks to run first, because existing rows that violate the new constraints will make it fail. Package media upload is **not** implemented: `PACKAGE_STORAGE_BUCKET` is declared but unused, and `cover_image_url`/`gallery_urls` store the references the operator supplies.
+
+A second draft, `supabase/migrations/20261017130000_operator_document_privacy.sql`, is also **unapplied**. It closes the operator document/contact exposure described under Security notes using column-level grants, and revokes the unused `INSERT`/`UPDATE`/`DELETE`/`TRUNCATE` privileges from `anon` and `authenticated`. The two drafts are independent and can be applied separately, but the privacy draft must be applied before launch.
 
 ## Guide accreditation
 
