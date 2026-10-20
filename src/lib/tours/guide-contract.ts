@@ -59,9 +59,4 @@ export interface GuideAdminRecord {
   accreditation_status: GuideAccreditationStatus;
   accreditation_notes: string | null;
   created_at: string;
-<<<<<<< HEAD
 }
-=======
-  profiles: { full_name: string | null } | null;
-}
->>>>>>> main
