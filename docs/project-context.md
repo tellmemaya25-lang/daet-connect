@@ -179,16 +179,29 @@ where attrelid = 'public.tours_operators'::regclass
 Signature: `0 / 2 / 0 / 0 / 0` = nothing applied; `6 / 0 / 1 / 1 / 0` =
 migration 1 applied; `6 / 0 / 1 / 1 / 8` = both applied.
 
-**Last observed signature: `7 / 0 / 1 / 1 / 0`.** Migration 1 is applied: the old
-unrestricted owner policies are gone, `Admin views all profiles` exists, and
-`submit_package_for_review` exists. Migration 2 is **not** applied
-(`column_acl_columns = 0`). **Open anomaly:** `stops_policies` is 7, but the
-migration creates exactly six policies on `tours_package_stops`. The seventh
-policy's name and definition were requested via
-`select policyname, permissive, roles, cmd, qual, with_check from pg_policies
-where tablename = 'tours_package_stops'` and must be inspected before treating
-migration 1 as fully verified — an unexpected permissive policy on this table
-would be a security hole, since the table previously had none.
+**Last observed signature: `7 / 0 / 1 / 1 / 0` — anomaly diagnosed.** Migration 1
+is applied (old unrestricted owner policies gone, `Admin views all profiles`
+present, `submit_package_for_review` present); migration 2 is not
+(`column_acl_columns = 0`). The seventh stops policy turned out to be two
+policies that exist in **no migration in this repository**, plus one of
+migration 1's policies missing:
+
+- `Operators can manage stops` — `FOR ALL`, permissive, `{authenticated}`,
+  ownership-only `qual`/`with_check` with **no draft gate and no approved
+  gate**. This let any authenticated operator insert/update/delete stops on
+  their own published or pending packages directly through PostgREST, and let
+  a pending or rejected operator do the same — re-opening the hole migration 1
+  closed. Its SELECT grant also masked the missing policy below.
+- `Public can view stops` — redundant duplicate of migration 1's
+  `Public views stops of published packages`.
+- Missing: `Operator views own package stops` (SELECT, own packages, any
+  status).
+
+`supabase/migrations/20261020120000_stops_policy_correction.sql` (draft, not
+applied) drops the two foreign policies and recreates the missing SELECT.
+After it, the five-value signature should read `6 / 0 / 1 / 1 / 0` and the
+stops table should show exactly the six intended policies. Apply it **before**
+migration 2.
 
 ## 7. Security rules in force
 
@@ -274,11 +287,11 @@ fresh sandbox.
 
 ## 10. Outstanding work
 
-1. **Inspect the seventh `tours_package_stops` policy.** The signature shows 7
-   where the migration creates 6. List it with
-   `select policyname, permissive, roles, cmd, qual, with_check from pg_policies
-   where tablename = 'tours_package_stops'` and confirm it is not an
-   unintentionally permissive policy before relying on migration 1.
+1. **Apply and verify the stops policy correction**
+   (`20261020120000_stops_policy_correction.sql`): drops the unsafe
+   ownership-only `FOR ALL` policy and the redundant public SELECT, restores
+   the missing own-stops SELECT. Verify the table shows exactly six policies
+   and that a published package's stops render read-only with saves rejected.
 2. Browser-check migration 1: `/tours/admin/guides` shows applicant names; a
    draft package's saved stops read back; a complete draft submits.
 3. Apply and verify migration 2; the post-apply `aclexplode` grant query should
