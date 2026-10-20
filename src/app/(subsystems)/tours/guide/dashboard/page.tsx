@@ -54,7 +54,10 @@ export default async function GuideDashboardPage() {
         <p className="text-xs font-black uppercase tracking-[0.18em] text-daet-leaf">Approved guide</p>
         <h1 className="mt-2 text-3xl font-black text-daet-ink">Welcome, {profile.full_name}.</h1>
         <p className="mt-3 max-w-2xl text-sm leading-6 text-daet-ink/65">Your accreditation is approved. Your public guide profile can now be verified using your badge QR.</p>
-        <Link href="/tours/guide/my-qr" className="mt-7 inline-flex min-h-12 items-center justify-center rounded-full bg-daet-forest px-6 text-sm font-bold text-white transition hover:bg-daet-ink">Open My QR Code</Link>
+        <div className="mt-7 flex flex-wrap gap-3">
+          <Link href="/tours/guide/my-qr" className="inline-flex min-h-12 items-center justify-center rounded-full bg-daet-forest px-6 text-sm font-bold text-white transition hover:bg-daet-ink">Open My QR Code</Link>
+          <Link href="/tours/guide/my-tours" className="inline-flex min-h-12 items-center justify-center rounded-full border border-daet-forest/20 px-6 text-sm font-bold text-daet-forest transition hover:bg-daet-forest/5">My Assigned Tours</Link>
+        </div>
       </section>
     </PageFrame>
   );

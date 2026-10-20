@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import {
   OPERATOR_DOCUMENT_BUCKET,
+  OPERATOR_DETAIL_COLUMNS,
   OPERATOR_FILE_COLUMNS,
   OPERATOR_STATUS_COLUMN,
   OPERATOR_TABLE,
@@ -85,7 +86,7 @@ export async function submitOperatorRegistration(
         message: session.error ?? "Your account role could not be verified. Please try again later.",
       };
     }
-    if (session.role !== "tourist" && session.role !== "operator") {
+    if (session.role !== "tourist" && session.role !== "operator" && session.role !== "guide") {
       return { status: "error", message: "This account is not allowed to submit an operator application." };
     }
 
@@ -199,11 +200,11 @@ export async function submitOperatorRegistration(
 
     const details = detailsResult.data;
     const applicationValues = {
-      business_name: details.businessName,
-      contact_person: details.contactPerson,
-      contact_email: details.contactEmail,
-      contact_phone: details.contactPhone,
-      business_address: details.businessAddress,
+      [OPERATOR_DETAIL_COLUMNS.businessName]: details.businessName,
+      [OPERATOR_DETAIL_COLUMNS.contactPerson]: details.contactPerson,
+      [OPERATOR_DETAIL_COLUMNS.contactEmail]: details.contactEmail,
+      [OPERATOR_DETAIL_COLUMNS.contactPhone]: details.contactPhone,
+      [OPERATOR_DETAIL_COLUMNS.businessAddress]: details.businessAddress,
       [OPERATOR_FILE_COLUMNS.dtiDocument]: storedPaths.dtiDocument,
       [OPERATOR_FILE_COLUMNS.businessPermit]: storedPaths.businessPermit,
       [OPERATOR_FILE_COLUMNS.gcashQr]: storedPaths.gcashQr,

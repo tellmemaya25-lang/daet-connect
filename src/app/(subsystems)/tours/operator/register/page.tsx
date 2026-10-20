@@ -56,12 +56,12 @@ export default async function OperatorRegistrationPage() {
   }
 
   if (session.role === "admin") redirect("/tours/admin/operators");
-  if (session.role !== "tourist" && session.role !== "operator") {
+  if (session.role !== "tourist" && session.role !== "operator" && session.role !== "guide") {
     return (
       <PageFrame>
         <div className="mx-auto max-w-2xl py-8">
           <Notice variant="warning" title="This account cannot apply as an operator">
-            Operator applications are available to tourist accounts. Sign in with a tourist account or contact the Tourism Office.
+            Operator applications are available to tourist accounts and guides. Sign in with an appropriate account or contact the Tourism Office.
           </Notice>
         </div>
       </PageFrame>

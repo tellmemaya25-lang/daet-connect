@@ -22,16 +22,28 @@ export function SiteHeader({ showAdminLink = false }: { showAdminLink?: boolean 
           {showAdminLink ? (
             <>
               <Link
+                href="/tours/admin"
+                className="hidden min-h-11 items-center rounded-full bg-daet-forest px-4 text-sm font-semibold text-white transition hover:bg-daet-ink md:inline-flex"
+              >
+                Admin Dashboard
+              </Link>
+              <Link
                 href="/tours/admin/operators"
                 className="hidden min-h-11 items-center rounded-full border border-daet-forest/20 px-4 text-sm font-semibold text-daet-forest transition hover:bg-daet-forest/5 md:inline-flex"
               >
-                Operator review
+                Operators
               </Link>
               <Link
                 href="/tours/admin/guides"
                 className="hidden min-h-11 items-center rounded-full border border-daet-forest/20 px-4 text-sm font-semibold text-daet-forest transition hover:bg-daet-forest/5 md:inline-flex"
               >
-                Guide review
+                Guides
+              </Link>
+              <Link
+                href="/tours/admin/packages"
+                className="hidden min-h-11 items-center rounded-full border border-daet-forest/20 px-4 text-sm font-semibold text-daet-forest transition hover:bg-daet-forest/5 md:inline-flex"
+              >
+                Packages
               </Link>
             </>
           ) : null}

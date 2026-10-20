@@ -28,6 +28,14 @@ export const OPERATOR_FILE_COLUMNS = {
   gcashQr: "gcash_qr_url",
 } as const;
 
+export const OPERATOR_DETAIL_COLUMNS = {
+  businessName: "business_name",
+  contactPerson: "contact_person",
+  contactEmail: "contact_email",
+  contactPhone: "contact_phone",
+  businessAddress: "business_address",
+} as const;
+
 export type AccreditationStatus = "pending" | "approved" | "rejected";
 
 export interface OperatorApplicationRecord {

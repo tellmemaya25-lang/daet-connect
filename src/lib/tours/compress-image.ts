@@ -25,11 +25,20 @@ function loadBitmap(file: File): Promise<ImageBitmap | HTMLImageElement> {
  * Re-encodes images locally before they cross the network. Document photos are
  * optimized as JPEG; QR images use lossless PNG where possible to keep the
  * code's high-contrast edges readable. PDFs are deliberately left untouched.
+ * 
+ * NOTE: This function requires browser APIs (Image, Canvas) and will NOT work
+ * in server-side contexts. Only call this from client components.
  */
 export async function compressImageFile(
   file: File,
   preserveQrSharpness = false,
 ): Promise<File> {
+  // Check if we're in a browser environment
+  if (typeof window === 'undefined' || typeof document === 'undefined') {
+    console.warn('compressImageFile called in non-browser context, returning original file');
+    return file;
+  }
+
   if (!file.type.startsWith("image/")) return file;
 
   let source: ImageBitmap | HTMLImageElement | null = null;

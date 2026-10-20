@@ -1,0 +1,132 @@
+import { notFound, redirect } from "next/navigation";
+import Link from "next/link";
+import { PageFrame } from "@/components/ui/page-frame";
+import { Notice } from "@/components/ui/notice";
+import { isSupabaseConfigured } from "@/lib/supabase/env";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { BookingForm } from "./booking-form";
+
+export const dynamic = "force-dynamic";
+
+type PageProps = {
+  params: Promise<{ id: string }>;
+};
+
+export default async function BookPackagePage({ params }: PageProps) {
+  if (!isSupabaseConfigured()) {
+    return (
+      <PageFrame>
+        <Notice variant="warning" title="Supabase setup needed">
+          Configure Supabase to book packages.
+        </Notice>
+      </PageFrame>
+    );
+  }
+
+  const { id } = await params;
+  const supabase = await createSupabaseServerClient();
+
+  // Get current user
+  const { data: { user } } = await supabase.auth.getUser();
+  
+  if (!user) {
+    redirect(`/login?next=${encodeURIComponent(`/tours/packages/${id}/book`)}`);
+  }
+
+  // Fetch package details with price variants
+  const { data: pkg, error } = await supabase
+    .from("tours_packages")
+    .select(
+      `
+      id,
+      title,
+      description,
+      location_name,
+      duration_value,
+      duration_type,
+      cover_image_url,
+      status,
+      tours_package_price_variants(
+        id,
+        variant_name,
+        price_per_pax,
+        flat_price,
+        min_pax,
+        max_pax,
+        is_default
+      ),
+      tours_operators(
+        business_name
+      )
+    `,
+    )
+    .eq("id", id)
+    .eq("status", "published")
+    .maybeSingle();
+
+  if (error || !pkg) {
+    console.error("Package fetch error:", error);
+    notFound();
+  }
+
+  // Get user profile for pre-filling form
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("full_name, email")
+    .eq("id", user.id)
+    .maybeSingle();
+
+  return (
+    <PageFrame>
+      <div className="mx-auto max-w-4xl">
+        {/* Breadcrumb */}
+        <nav className="mb-6 text-sm text-daet-ink/60">
+          <Link href="/tours/browse" className="hover:text-daet-forest">
+            Browse packages
+          </Link>
+          <span className="mx-2">→</span>
+          <Link href={`/tours/packages/${pkg.id}`} className="hover:text-daet-forest">
+            {pkg.title}
+          </Link>
+          <span className="mx-2">→</span>
+          <span className="text-daet-ink">Book</span>
+        </nav>
+
+        {/* Package Header */}
+        <div className="mb-8 rounded-3xl border border-daet-ink/10 bg-white p-6 shadow-sm">
+          <div className="flex gap-6">
+            {pkg.cover_image_url && (
+              <img
+                src={pkg.cover_image_url}
+                alt={pkg.title}
+                className="h-32 w-48 rounded-2xl object-cover"
+              />
+            )}
+            <div className="flex-1">
+              <h1 className="text-2xl font-black text-daet-ink">{pkg.title}</h1>
+              <p className="mt-2 text-sm text-daet-ink/60">
+                📍 {pkg.location_name} · ⏱️ {pkg.duration_value}{" "}
+                {pkg.duration_type === "hours" ? "hours" : "days"}
+              </p>
+              {Array.isArray(pkg.tours_operators) && pkg.tours_operators[0] && (
+                <p className="mt-1 text-sm font-bold text-daet-forest">
+                  by {pkg.tours_operators[0].business_name}
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Booking Form */}
+        <BookingForm
+          packageId={pkg.id}
+          priceVariants={pkg.tours_package_price_variants || []}
+          userProfile={{
+            fullName: profile?.full_name || "",
+            email: profile?.email || user.email || "",
+          }}
+        />
+      </div>
+    </PageFrame>
+  );
+}

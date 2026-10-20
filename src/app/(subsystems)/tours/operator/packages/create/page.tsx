@@ -1,0 +1,100 @@
+import { redirect } from "next/navigation";
+import { PageFrame } from "@/components/ui/page-frame";
+import { Notice } from "@/components/ui/notice";
+import { isSupabaseConfigured } from "@/lib/supabase/env";
+import { getAuthenticatedSession } from "@/lib/tours/server-auth";
+import { canAccessOperatorDashboard } from "@/lib/tours/operator-access";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
+import {
+  OPERATOR_TABLE,
+  OPERATOR_USER_ID_COLUMN,
+  OPERATOR_OWN_STATUS_SELECT,
+} from "@/lib/tours/operator-contract";
+import { PackageCreateForm } from "./package-create-form";
+
+export const dynamic = "force-dynamic";
+
+export default async function CreatePackagePage() {
+  if (!isSupabaseConfigured()) {
+    return (
+      <PageFrame>
+        <Notice variant="warning" title="Supabase setup needed">
+          Configure Supabase before creating packages.
+        </Notice>
+      </PageFrame>
+    );
+  }
+
+  let session;
+  try {
+    session = await getAuthenticatedSession();
+  } catch {
+    session = { user: null, role: null, error: "Supabase could not be reached." };
+  }
+
+  if (!session.user) {
+    redirect(`/login?next=${encodeURIComponent("/tours/operator/packages/create")}`);
+  }
+
+  if (session.error || !session.role) {
+    return (
+      <PageFrame>
+        <Notice variant="error" title="Account verification failed">
+          {session.error ?? "Your role could not be verified."}
+        </Notice>
+      </PageFrame>
+    );
+  }
+
+  const supabase = await createSupabaseServerClient();
+  
+  // Get operator info - using profile_id (correct column name)
+  const { data: operator, error } = await supabase
+    .from("tours_operators")
+    .select("id, accreditation_status")
+    .eq("profile_id", session.user.id)
+    .maybeSingle();
+
+  if (error || !operator) {
+    return (
+      <PageFrame>
+        <Notice variant="error" title="Could not verify accreditation">
+          Your operator status could not be checked.
+        </Notice>
+      </PageFrame>
+    );
+  }
+
+  if (operator.accreditation_status !== "approved") {
+    redirect("/tours/operator/pending");
+  }
+
+  if (!canAccessOperatorDashboard(session.role, operator.accreditation_status)) {
+    return (
+      <PageFrame>
+        <Notice variant="error" title="Access denied">
+          Your accreditation and account role do not match.
+        </Notice>
+      </PageFrame>
+    );
+  }
+
+  return (
+    <PageFrame>
+      <div className="mx-auto max-w-4xl">
+        <div className="mb-8">
+          <p className="text-xs font-black uppercase tracking-[0.18em] text-daet-leaf">
+            Create package
+          </p>
+          <h1 className="mt-2 text-3xl font-black text-daet-ink">New Tour Package</h1>
+          <p className="mt-2 text-sm leading-6 text-daet-ink/65">
+            Fill out the form below to create a new tour package. After submission, it will be
+            reviewed by the Tourism Office.
+          </p>
+        </div>
+
+        <PackageCreateForm operatorId={operator.id} />
+      </div>
+    </PageFrame>
+  );
+}

@@ -1,0 +1,51 @@
+import { redirect } from "next/navigation";
+import { PageFrame } from "@/components/ui/page-frame";
+import { Notice } from "@/components/ui/notice";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { isSupabaseConfigured } from "@/lib/supabase/env";
+import { LoginForm } from "./login-form";
+
+export const dynamic = "force-dynamic";
+
+type SearchParams = Promise<{ next?: string }>;
+
+export default async function LoginPage({ searchParams }: { searchParams: SearchParams }) {
+  if (!isSupabaseConfigured()) {
+    return (
+      <PageFrame>
+        <div className="mx-auto max-w-md py-8">
+          <Notice variant="warning" title="Supabase setup required">
+            Configure Supabase environment variables before signing in.
+          </Notice>
+        </div>
+      </PageFrame>
+    );
+  }
+
+  const supabase = await createSupabaseServerClient();
+  const { data } = await supabase.auth.getUser();
+
+  if (data?.user) {
+    const params = await searchParams;
+    const nextUrl = params.next ?? "/";
+    redirect(nextUrl);
+  }
+
+  const params = await searchParams;
+  const nextUrl = params.next ?? "/";
+
+  return (
+    <PageFrame>
+      <div className="mx-auto max-w-md">
+        <section className="rounded-3xl border border-daet-ink/10 bg-white p-6 shadow-card sm:p-10">
+          <p className="text-xs font-black uppercase tracking-[0.18em] text-daet-leaf">CONNECT-DAET</p>
+          <h1 className="mt-2 text-3xl font-black text-daet-ink">Sign in</h1>
+          <p className="mt-2 text-sm leading-6 text-daet-ink/65">
+            Enter your email and password to access your account.
+          </p>
+          <LoginForm nextUrl={nextUrl} />
+        </section>
+      </div>
+    </PageFrame>
+  );
+}
