@@ -8,6 +8,7 @@
     "start": "next start --hostname 0.0.0.0",
     "test": "jest --runInBand",
     "test:e2e": "playwright test",
+    "test:e2e:verification": "playwright test src/app/(subsystems)/tours/admin/browser-verification.e2e.spec.ts",
     "typecheck": "next typegen && tsc --noEmit"
   },
   "dependencies": {

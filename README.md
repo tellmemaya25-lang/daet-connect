@@ -55,18 +55,18 @@ Pricing and stops are written through the `SECURITY DEFINER` RPCs `replace_packa
 
 `submitPackageForReview` delegates completeness validation and the `draft → pending_review` transition to the `submit_package_for_review(p_package_id uuid)` RPC introduced by `supabase/migrations/20261017120000_module3_package_authorization.sql`, so both happen inside one transaction and a concurrent edit cannot slip between them. The action surfaces only the RPC's deliberate messages and hides any other database error behind a generic one, logging the raw error server-side. **The RPC exists only once that migration is applied**; on an unmigrated database submission fails with the generic message.
 
-### Pending database migration
+### Database migrations — applied and verified 2026-10-20
 
-`supabase/migrations/20261017120000_module3_package_authorization.sql` is a **draft that has not been applied**. It is required before this module works end to end, because the live database currently has:
+The three files in `supabase/migrations/` are applied to the live database and verified; together they are the authoritative record of the authorization layer. Before them the live database had:
 
-1. **No policies on `tours_package_stops`** despite RLS being enabled. Reads return an empty set with no error, so operators can save stops (the RPC bypasses RLS) but can never read them back, and submission always fails with “Add at least one map stop before submitting.”
-2. **Unrestricted owner policies** on `tours_packages` and `tours_package_price_variants` (`FOR ALL`, ownership check only, no draft or accreditation gate), which allow an operator to self-publish a package or edit the pricing of a published package directly through PostgREST, bypassing admin review.
-3. **No admin policy on `profiles`**, which is why the guide review queue renders “Name unavailable”: the admin page reads `profiles.id,full_name` with the session client and RLS filters every row that is not the admin’s own profile.
+1. **No policies on `tours_package_stops`** despite RLS being enabled. Reads returned an empty set with no error while the write RPC succeeded, so operators could save stops but never read them back and submission always failed with “Add at least one map stop before submitting.”
+2. **Unrestricted owner policies** on `tours_packages` and `tours_package_price_variants` (`FOR ALL`, ownership check only, no draft or accreditation gate), which allowed an operator to self-publish a package or edit the pricing of a published package directly through PostgREST, bypassing admin review.
+3. **No admin policy on `profiles`**, which is why the guide review queue rendered “Name unavailable”: the admin page reads `profiles.id,full_name` with the session client and RLS filters every row that is not the admin’s own profile.
 4. **No nonnegative-price, pax-range, or single-default-variant constraints**, all of which were application-layer rules only.
 
-The migration file documents pre-flight checks to run first, because existing rows that violate the new constraints will make it fail. Package media upload is **not** implemented: `PACKAGE_STORAGE_BUCKET` is declared but unused, and `cover_image_url`/`gallery_urls` store the references the operator supplies.
+`20261017120000_module3_package_authorization.sql` fixed 1–4 and added the atomic `submit_package_for_review` RPC. `20261020120000_stops_policy_correction.sql` removed two stops policies that had been created **outside this repository** — an ownership-only `FOR ALL` that re-opened hole 2, and a redundant public SELECT — and restored the missing own-stops SELECT. `20261017130000_operator_document_privacy.sql` closes the operator document/contact exposure described under Security notes with column-level grants and revokes the unused `INSERT`/`UPDATE`/`DELETE`/`TRUNCATE` privileges from `anon`/`authenticated`.
 
-A second draft, `supabase/migrations/20261017130000_operator_document_privacy.sql`, is also **unapplied**. It closes the operator document/contact exposure described under Security notes using column-level grants, and revokes the unused `INSERT`/`UPDATE`/`DELETE`/`TRUNCATE` privileges from `anon` and `authenticated`. The two drafts are independent and can be applied separately, but the privacy draft must be applied before launch.
+The verification signature, the queries to re-check it, and the incident note live in `docs/project-context.md` §6. Package media upload is **not** implemented: `PACKAGE_STORAGE_BUCKET` is declared but unused, and `cover_image_url`/`gallery_urls` store the references the operator supplies.
 
 ## Guide accreditation
 

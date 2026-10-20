@@ -6,6 +6,7 @@ import "server-only";
  * every expected field name centralized here and verify it against the locked
  * schema before deployment.
  */
+
 export const GUIDE_TABLE = "tours_guides";
 export const GUIDE_SENSITIVE_TABLE = "tours_guide_sensitive_info";
 export const GUIDE_USER_ID_COLUMN = "profile_id";
@@ -21,6 +22,7 @@ export const GUIDE_OWN_STATUS_SELECT =
 export const GUIDE_ADMIN_SELECT =
   `id,${GUIDE_USER_ID_COLUMN},contact_phone,bio,${GUIDE_STATUS_COLUMN},${GUIDE_NOTES_COLUMN},created_at`;
 
+// Written to tours_guides. fullName intentionally excluded — goes to profiles instead.
 export const GUIDE_PUBLIC_FIELDS = {
   contactPhone: "contact_phone",
   bio: "bio",
@@ -28,6 +30,9 @@ export const GUIDE_PUBLIC_FIELDS = {
   consentAt: "consent_given_at",
 } as const;
 
+// Written to tours_guide_sensitive_info (service_role only).
+// fullLegalName added — previously missing entirely, so verified legal 
+// names were never actually being saved anywhere.
 export const GUIDE_SENSITIVE_FIELDS = {
   guideId: "guide_id",
   fullLegalName: "full_legal_name",
@@ -43,6 +48,7 @@ export interface GuideOwnStatusRecord {
   accreditation_status: GuideAccreditationStatus;
   accreditation_notes: string | null;
   created_at: string;
+  profiles: { full_name: string | null } | null;
 }
 
 export interface GuideAdminRecord {
@@ -53,4 +59,9 @@ export interface GuideAdminRecord {
   accreditation_status: GuideAccreditationStatus;
   accreditation_notes: string | null;
   created_at: string;
+<<<<<<< HEAD
 }
+=======
+  profiles: { full_name: string | null } | null;
+}
+>>>>>>> main
