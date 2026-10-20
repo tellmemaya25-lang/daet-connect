@@ -31,9 +31,7 @@ export async function getOwnOperatorApplicationStatus(
       .maybeSingle();
 
     if (error) {
-      console.error("Could not load an operator's own application status.", {
-        code: error.code,
-      });
+      console.error("Could not load an operator's own application status.", error);
       return { ok: false };
     }
 

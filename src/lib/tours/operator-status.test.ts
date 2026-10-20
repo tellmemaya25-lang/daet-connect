@@ -22,7 +22,7 @@ describe("getOwnOperatorApplicationStatus", () => {
     const application = {
       id: "operator-row-id",
       accreditation_status: "rejected",
-      rejection_reason: "Please provide an updated permit.",
+      accreditation_notes: "Please provide an updated permit.",
       created_at: "2026-10-01T12:00:00.000Z",
     };
     const query = {
@@ -37,9 +37,9 @@ describe("getOwnOperatorApplicationStatus", () => {
     const result = await getOwnOperatorApplicationStatus(USER_ID);
 
     expect(result).toEqual({ ok: true, application });
-    expect(query.eq).toHaveBeenCalledWith("user_id", USER_ID);
+    expect(query.eq).toHaveBeenCalledWith("profile_id", USER_ID);
     expect(query.select).toHaveBeenCalledWith(
-      "id,accreditation_status,rejection_reason,created_at",
+      "id,accreditation_status,accreditation_notes,created_at",
     );
   });
 

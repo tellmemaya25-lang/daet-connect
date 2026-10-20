@@ -4,7 +4,7 @@ const port = 3100;
 const baseURL = `http://127.0.0.1:${port}`;
 
 export default defineConfig({
-  testDir: "./src/app/(subsystems)/tours/guide",
+  testDir: "./src/app/(subsystems)/tours",
   testMatch: "**/*.e2e.spec.ts",
   fullyParallel: true,
   forbidOnly: Boolean(process.env.CI),

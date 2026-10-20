@@ -54,9 +54,9 @@ async function removeGuideDocument(
   if (!path) return;
   try {
     const { error } = await admin.storage.from(GUIDE_SENSITIVE_DOCUMENT_BUCKET).remove([path]);
-    if (error) console.error("Could not clean up an incomplete guide ID upload.");
-  } catch {
-    console.error("Could not clean up an incomplete guide ID upload.");
+    if (error) console.error("Could not clean up an incomplete guide ID upload.", error);
+  } catch (cleanupError) {
+    console.error("Could not clean up an incomplete guide ID upload.", cleanupError);
   }
 }
 
@@ -289,6 +289,7 @@ export async function submitGuideRegistration(
         .select("id")
         .maybeSingle();
       if (publicUpdateError || !updatedGuide) {
+        console.error("Could not resubmit rejected guide application.", publicUpdateError);
         await removeGuideDocument(admin, uploadedPath);
         uploadedPath = null;
         return { status: "error", message: "Your rejected guide application changed. Refresh and try again." };
@@ -300,6 +301,7 @@ export async function submitGuideRegistration(
         ...publicValues,
       });
       if (publicInsertError) {
+        console.error("Could not insert new guide application.", publicInsertError);
         await removeGuideDocument(admin, uploadedPath);
         uploadedPath = null;
         return { status: "error", message: "Your public guide profile could not be saved. Please try again." };
@@ -313,10 +315,10 @@ export async function submitGuideRegistration(
         .update({ full_name: profile.data.fullName })
         .eq("id", session.user.id);
       if (profileNameSyncError) {
-        console.error("Could not sync guide applicant name to profile.");
+        console.error("Could not sync guide applicant name to profile.", profileNameSyncError);
       }
-    } catch {
-      console.error("Could not sync guide applicant name to profile.");
+    } catch (syncError) {
+      console.error("Could not sync guide applicant name to profile.", syncError);
     }
 
     const sensitiveValues = {
