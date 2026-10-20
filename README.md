@@ -2,6 +2,8 @@
 
 This repository contains the CONNECT-DAET tours subsystem, including operator and local-guide accreditation flows with admin approval queues. It uses the App Router, Server Actions, Supabase Auth/Storage/Postgres, and mobile-first Tailwind UI.
 
+`docs/project-context.md` is the living context document: current architecture, the verified live database shape, security rules, draft-migration status, and outstanding work. When it conflicts with the code or the database, the code and database win.
+
 ## Local setup
 
 1. Install Node.js 20.9+ and run `npm install`.
