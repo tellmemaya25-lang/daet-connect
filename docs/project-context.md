@@ -179,12 +179,14 @@ where attrelid = 'public.tours_operators'::regclass
 Signature: `0 / 2 / 0 / 0 / 0` = nothing applied; `6 / 0 / 1 / 1 / 0` =
 migration 1 applied; `6 / 0 / 1 / 1 / 8` = both applied.
 
-**Last observed signature: `6 / 0 / 1 / 1 / 0` (2026-10-20) — stops table verified.**
-Migration 1 and the corrective migration are both applied: the old unrestricted
-owner policies are gone, `Admin views all profiles` exists,
-`submit_package_for_review` exists, and `tours_package_stops` holds exactly the
-six intended policies. Migration 2 is **not** applied (`column_acl_columns = 0`)
-and is the next step.
+**Last observed signature: `6 / 0 / 1 / 1 / 8` (2026-10-20) — all migrations applied
+and verified.** `tours_package_stops` holds exactly the six intended policies,
+the old unrestricted owner policies are gone, `Admin views all profiles`
+exists, `submit_package_for_review` exists, and `tours_operators` carries eight
+column ACLs. The grant detail was verified row by row: `anon` selects
+`id, business_name, business_description, business_address,
+accreditation_status, created_at, updated_at`; `authenticated` selects those
+seven plus `profile_id`; neither sees any restricted column.
 
 Historical note, resolved: between migration 1 and the correction the signature
 read `7 / 0 / 1 / 1 / 0` because two policies existed that appear in no
@@ -215,13 +217,14 @@ browser checks stand as the verification.
 - Secrets live in `.env.local` only.
 - Admin listing and review re-check `get_my_role() === 'admin'` server-side.
 
-## 8. Draft migrations — neither confirmed applied
+## 8. Migrations — all applied and verified 2026-10-20
 
-Both files are review artifacts in `supabase/migrations/`. Nothing has been run
-against the database by this project; the product owner applies them manually
-in the Supabase SQL Editor.
+The three files in `supabase/migrations/` were applied by the product owner in
+the Supabase SQL Editor, in the order migration 1 → correction → migration 2,
+each verified before the next. They are retained in the repository as the
+authoritative record of the live schema's authorization layer.
 
-### `20261017120000_module3_package_authorization.sql`
+### `20261017120000_module3_package_authorization.sql` — APPLIED 2026-10-20
 
 1. Adds the six missing `tours_package_stops` policies (own-stops SELECT;
    approved-operator INSERT/UPDATE/DELETE on drafts; public SELECT of published;
@@ -249,7 +252,7 @@ Pre-flight data checks (negative prices, default counts, pax ranges, duplicate
 stop orders) were run and returned **all zero**, so existing rows will not abort
 it.
 
-### `20261017130000_operator_document_privacy.sql`
+### `20261017130000_operator_document_privacy.sql` — APPLIED 2026-10-20
 
 Row-level security cannot hide columns of a visible row, so column privacy is
 enforced with column-level `REVOKE`/`GRANT`:
@@ -292,19 +295,22 @@ fresh sandbox.
 
 ## 10. Outstanding work
 
-1. **Done (2026-10-20): stops policy correction applied and verified.**
-   `20261020120000_stops_policy_correction.sql` dropped the unsafe
-   ownership-only `FOR ALL` policy and the redundant public SELECT and restored
-   the missing own-stops SELECT; the signature now reads `6 / 0 / 1 / 1 / 0`.
-2. Browser-check migration 1: `/tours/admin/guides` shows applicant names; a
-   draft package's saved stops read back; a complete draft submits.
-3. Apply and verify migration 2; the post-apply `aclexplode` grant query should
-   show 8 ACL-bearing columns and no restricted column for `anon` or
-   `authenticated`.
-4. `submitPackageForReview` now calls the atomic `submit_package_for_review`
-   RPC (done in code). On a database where migration 1 is **not** applied the
-   RPC is missing and submission returns the generic failure message — keep
-   code and database in step when deploying.
+1. **Done (2026-10-20): all three migrations applied and verified.** Signature
+   `6 / 0 / 1 / 1 / 8`; grant rows confirm `anon` sees seven public columns and
+   `authenticated` those plus `profile_id`, with no restricted column visible to
+   either. Stops hold exactly six policies.
+2. **Browser checks pending (product owner):** `/tours/admin/guides` shows
+   applicant names; a draft package's saved stops read back and save; a
+   non-draft package renders read-only; `/tours/admin/operators` still shows
+   documents and contacts; operator package list/new/edit still work after the
+   column-grant change.
+3. **Audit the drift channel.** Two stops policies were created outside this
+   repository (dashboard saved query or manual edit). Identify and remove that
+   write path or it can reintroduce an unsafe policy.
+4. `submitPackageForReview` calls the atomic `submit_package_for_review` RPC.
+   Code and database are now in step; keep them that way when deploying — on an
+   unmigrated database the RPC is missing and submission returns the generic
+   failure message.
 5. Live authenticated browser E2E for the operator and guide flows — deferred by
    the product owner.
 6. The `42703` undefined-column error should be resolved by the schema
