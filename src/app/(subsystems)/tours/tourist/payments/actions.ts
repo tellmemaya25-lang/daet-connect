@@ -374,3 +374,240 @@ export async function getTransactionDetail(
     return { success: false, error: "Failed to load transaction details" };
   }
 }
+
+
+/**
+ * Generate Receipt for Completed Transaction
+ * 
+ * Task 22: Generate Receipt Server Action
+ * 
+ * Validates transaction completion, generates PDF receipt with QR code,
+ * uploads to storage, and returns download URL.
+ * 
+ * Acceptance Criteria:
+ * - 9.1: Receipt can be generated for completed transactions
+ * - 9.4: PDF is returned as download
+ * - 9.5: Receipt stored in tours_receipts bucket with path {tourist_id}/{transaction_id}.pdf
+ * - 9.6: Receipt generation retries once after 2 seconds on failure
+ * - 15.2: Tourist ownership is validated
+ */
+export async function generateReceipt(
+  transactionId: string
+): Promise<ActionResult<{ downloadUrl: string }>> {
+  try {
+    // 1. Authenticate
+    const session = await getAuthenticatedSession();
+    if (!session.user) {
+      return { success: false, error: "You must be signed in" };
+    }
+
+    // 2. Get transaction with all details
+    const supabase = await createSupabaseServerClient();
+    const { data: transaction, error: fetchError } = await supabase
+      .from(PAYMENT_TRANSACTIONS_TABLE)
+      .select(TRANSACTION_DETAIL_SELECT)
+      .eq(PAYMENT_FIELDS.id, transactionId)
+      .single();
+
+    if (fetchError || !transaction) {
+      return { success: false, error: "Transaction not found" };
+    }
+
+    // 3. Validate transaction belongs to authenticated user
+    if (
+      !transaction.bookings ||
+      transaction.bookings.length === 0 ||
+      transaction.bookings[0].tourist_id !== session.user.id
+    ) {
+      return { success: false, error: "You do not have access to this transaction" };
+    }
+
+    // 4. Check if transaction is completed
+    if (transaction.status !== "completed") {
+      return {
+        success: false,
+        error: "Receipt can only be generated for completed transactions",
+      };
+    }
+
+    // 5. Check if receipt already exists
+    const existingReceipt = await checkExistingReceipt(
+      supabase,
+      session.user.id,
+      transactionId
+    );
+
+    if (existingReceipt) {
+      return {
+        success: true,
+        data: { downloadUrl: existingReceipt },
+      };
+    }
+
+    // 6. Generate receipt PDF (with retry)
+    let receiptPdf: Buffer;
+    try {
+      const { generateReceiptPDF } = await import("@/lib/tours/receipt-generator");
+      receiptPdf = await generateReceiptPDF({
+        transaction: transaction as any,
+        touristName: session.user.user_metadata?.full_name || "Tourist",
+        touristEmail: session.user.email || "unknown@email.com",
+      });
+    } catch (error) {
+      console.error("Receipt generation failed, retrying:", error);
+
+      // Retry once after 2 seconds
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+
+      try {
+        const { generateReceiptPDF } = await import("@/lib/tours/receipt-generator");
+        receiptPdf = await generateReceiptPDF({
+          transaction: transaction as any,
+          touristName: session.user.user_metadata?.full_name || "Tourist",
+          touristEmail: session.user.email || "unknown@email.com",
+        });
+      } catch (retryError) {
+        console.error("Receipt generation failed after retry:", retryError);
+        return {
+          success: false,
+          error: "Failed to generate receipt. Please try again.",
+        };
+      }
+    }
+
+    // 7. Upload receipt to storage
+    const downloadUrl = await uploadReceiptToStorage(
+      supabase,
+      session.user.id,
+      transactionId,
+      receiptPdf
+    );
+
+    if (!downloadUrl) {
+      return {
+        success: false,
+        error: "Failed to upload receipt. Please try again.",
+      };
+    }
+
+    // 8. Store receipt metadata in database
+    await storeReceiptMetadata(supabase, transactionId, session.user.id);
+
+    return { success: true, data: { downloadUrl } };
+  } catch (error) {
+    console.error("Generate receipt error:", error);
+    return {
+      success: false,
+      error: "An unexpected error occurred while generating receipt",
+    };
+  }
+}
+
+/**
+ * Check if receipt already exists in storage
+ */
+async function checkExistingReceipt(
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
+  touristId: string,
+  transactionId: string
+): Promise<string | null> {
+  try {
+    // Check in database for cached URL
+    const { data, error } = await supabase
+      .from("tours_receipts")
+      .select("storage_url")
+      .eq("transaction_id", transactionId)
+      .eq("tourist_id", touristId)
+      .single();
+
+    if (!error && data?.storage_url) {
+      // Verify URL is still valid by checking file exists
+      const { data: fileExists } = await supabase.storage
+        .from("tours_receipts")
+        .list(touristId, {
+          limit: 1,
+          search: `${transactionId}.pdf`,
+        });
+
+      if (fileExists && fileExists.length > 0) {
+        return data.storage_url;
+      }
+    }
+
+    return null;
+  } catch (error) {
+    console.warn("Error checking existing receipt:", error);
+    return null;
+  }
+}
+
+/**
+ * Upload receipt PDF to Supabase storage
+ * 
+ * Returns signed URL with 1-hour expiration
+ */
+async function uploadReceiptToStorage(
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
+  touristId: string,
+  transactionId: string,
+  pdfBuffer: Buffer
+): Promise<string | null> {
+  try {
+    // Upload file to storage
+    const filePath = `${touristId}/${transactionId}.pdf`;
+    const { error: uploadError } = await supabase.storage
+      .from("tours_receipts")
+      .upload(filePath, pdfBuffer, {
+        contentType: "application/pdf",
+        cacheControl: "max-age=3600", // 1 hour
+        upsert: true, // Overwrite if exists
+      });
+
+    if (uploadError) {
+      console.error("Storage upload error:", uploadError);
+      return null;
+    }
+
+    // Generate signed URL with 1-hour expiration (3600 seconds)
+    const { data: signedUrl, error: urlError } = await supabase.storage
+      .from("tours_receipts")
+      .createSignedUrl(filePath, 3600);
+
+    if (urlError || !signedUrl?.signedUrl) {
+      console.error("Signed URL generation error:", urlError);
+      return null;
+    }
+
+    return signedUrl.signedUrl;
+  } catch (error) {
+    console.error("Storage upload error:", error);
+    return null;
+  }
+}
+
+/**
+ * Store receipt metadata in database for quick retrieval
+ */
+async function storeReceiptMetadata(
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
+  transactionId: string,
+  touristId: string
+): Promise<void> {
+  try {
+    // Try to create receipt metadata record (ignore errors if table doesn't exist)
+    await supabase
+      .from("tours_receipts")
+      .upsert(
+        {
+          transaction_id: transactionId,
+          tourist_id: touristId,
+          generated_at: new Date().toISOString(),
+        },
+        { onConflict: "transaction_id" }
+      )
+      .single();
+  } catch (error) {
+    // Silently fail - receipt still works via storage
+    console.warn("Could not store receipt metadata:", error);
+  }
+}
