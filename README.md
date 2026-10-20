@@ -53,7 +53,7 @@ Package Server Actions use the authenticated session client, so RLS is the real 
 
 Pricing and stops are written through the `SECURITY DEFINER` RPCs `replace_package_price_variants` and `replace_package_stops`, which re-check ownership and draft status in the database and replace the whole child collection in one transaction. `stop_order` is derived from array ordinality, never from a client-supplied value.
 
-`submitPackageForReview` currently validates children and then updates the status as separate requests. `supabase/migrations/20261017120000_module3_package_authorization.sql` adds a `submit_package_for_review(p_package_id uuid)` RPC that performs validation and the `draft → pending_review` transition inside a single transaction; switch the action to that RPC after the migration is applied.
+`submitPackageForReview` delegates completeness validation and the `draft → pending_review` transition to the `submit_package_for_review(p_package_id uuid)` RPC introduced by `supabase/migrations/20261017120000_module3_package_authorization.sql`, so both happen inside one transaction and a concurrent edit cannot slip between them. The action surfaces only the RPC's deliberate messages and hides any other database error behind a generic one, logging the raw error server-side. **The RPC exists only once that migration is applied**; on an unmigrated database submission fails with the generic message.
 
 ### Pending database migration
 

@@ -12,10 +12,6 @@ import {
   PACKAGE_LIST_SELECT,
   PACKAGE_STATUS,
   PACKAGE_TABLE,
-  PRICE_VARIANT_FIELDS,
-  PRICE_VARIANT_TABLE,
-  STOP_FIELDS,
-  STOP_TABLE,
   validatePackageStop,
   validatePriceVariant,
   type PackageDetailRecord,
@@ -376,6 +372,34 @@ export async function replacePackageStops(
 }
 
 /** Moves a draft package to pending_review after checking its variants and stops. */
+/**
+ * Messages the submit_package_for_review RPC raises on purpose. Anything else
+ * could leak schema or privilege detail, so it is logged and replaced with a
+ * generic message.
+ */
+const SUBMIT_RPC_USER_MESSAGES = [
+  "Not authorized to submit this package, or package is not in draft status.",
+  "Add at least one price variant before submitting.",
+  "Set exactly one price variant as the default before submitting.",
+  "Add at least one map stop before submitting.",
+] as const;
+
+function submitErrorMessage(error: { message?: string } | null | undefined): string {
+  const message = error?.message?.trim() ?? "";
+  return (SUBMIT_RPC_USER_MESSAGES as readonly string[]).includes(message)
+    ? message
+    : "Could not submit package for review. Please try again.";
+}
+
+/**
+ * Moves a draft package to pending_review.
+ *
+ * Completeness validation and the status transition run inside the
+ * submit_package_for_review RPC in a single transaction, so a concurrent edit
+ * cannot slip in between reading the children and flipping the status. The RPC
+ * re-checks ownership, approved accreditation, and draft status itself; this
+ * action keeps the server-side session/role/approval check as a fail-fast.
+ */
 export async function submitPackageForReview(packageId: string): Promise<ActionResult> {
   if (!isUuid(packageId)) return { success: false, error: "The package identifier is invalid." };
 
@@ -384,79 +408,13 @@ export async function submitPackageForReview(packageId: string): Promise<ActionR
     const auth = await requireApprovedOperator(sessionClient);
     if ("error" in auth) return { success: false, error: auth.error };
 
-    const editable = await requireEditablePackage(sessionClient, packageId, auth.operatorId);
-    if ("error" in editable) return { success: false, error: editable.error };
+    const { error } = await sessionClient.rpc("submit_package_for_review", {
+      p_package_id: packageId,
+    });
 
-    const { data: variantRows, error: variantsError } = await sessionClient
-      .from(PRICE_VARIANT_TABLE)
-      .select("variant_name,min_pax,max_pax,price_per_pax,flat_price,is_default")
-      .eq(PRICE_VARIANT_FIELDS.packageId, packageId);
-
-    // A query failure must not be reported as an empty collection: RLS, schema,
-    // or connectivity problems would otherwise look like missing operator input.
-    if (variantsError) {
-      actionError("submitPackageForReview:price_variants", variantsError);
-      return { success: false, error: "Price variants could not be verified. Please try again." };
-    }
-    if (!variantRows || variantRows.length === 0) {
-      return { success: false, error: "Add at least one price variant before submitting." };
-    }
-    const variants = variantRows.map((row) => ({
-      variantName: row.variant_name,
-      minPax: row.min_pax,
-      maxPax: row.max_pax,
-      pricePerPax: row.price_per_pax,
-      flatPrice: row.flat_price,
-      isDefault: row.is_default,
-    }));
-    if (variants.filter((variant) => variant.isDefault).length !== 1) {
-      return { success: false, error: "Set exactly one price variant as the default before submitting." };
-    }
-    for (const variant of variants) {
-      const validationError = validatePriceVariant(variant);
-      if (validationError) return { success: false, error: validationError };
-    }
-
-    const { data: stopRows, error: stopsError } = await sessionClient
-      .from(STOP_TABLE)
-      .select("stop_order,location_name,latitude,longitude,description,estimated_duration_minutes")
-      .eq(STOP_FIELDS.packageId, packageId)
-      .order(STOP_FIELDS.stopOrder, { ascending: true });
-
-    if (stopsError) {
-      actionError("submitPackageForReview:stops", stopsError);
-      return { success: false, error: "Map stops could not be verified. Please try again." };
-    }
-    if (!stopRows || stopRows.length === 0) {
-      return { success: false, error: "Add at least one map stop before submitting." };
-    }
-    const stops = stopRows.map((row) => ({
-      locationName: row.location_name,
-      latitude: row.latitude,
-      longitude: row.longitude,
-      description: row.description,
-      estimatedDurationMinutes: row.estimated_duration_minutes,
-    }));
-    for (const [index, stop] of stops.entries()) {
-      if (stopRows[index].stop_order !== index + 1) {
-        return { success: false, error: "Save the map stops again to restore their order before submitting." };
-      }
-      const validationError = validatePackageStop(stop);
-      if (validationError) return { success: false, error: validationError };
-    }
-
-    const { data, error } = await sessionClient
-      .from(PACKAGE_TABLE)
-      .update({ [PACKAGE_FIELDS.status]: PACKAGE_STATUS.PENDING_REVIEW })
-      .eq("id", packageId)
-      .eq(PACKAGE_FIELDS.operatorId, auth.operatorId)
-      .eq(PACKAGE_FIELDS.status, PACKAGE_STATUS.DRAFT)
-      .select("id")
-      .maybeSingle();
-
-    if (error || !data?.id) {
+    if (error) {
       actionError("submitPackageForReview", error);
-      return { success: false, error: "Package could not be submitted; it may no longer be a draft." };
+      return { success: false, error: submitErrorMessage(error) };
     }
 
     revalidatePath("/tours/operator/packages");

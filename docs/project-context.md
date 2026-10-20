@@ -100,6 +100,9 @@ accreditation, package ownership, and draft status, and the database policies
 enforce the same boundary. Non-draft packages render read-only. Variants and
 stops are replaced wholesale through `SECURITY DEFINER` RPCs; `stop_order` is
 derived from array ordinality and never accepted from the client.
+Submit-for-review delegates validation and the `draft → pending_review`
+transition to the `submit_package_for_review` RPC so both happen in one
+transaction; see §10 for its dependency on migration 1 being applied.
 
 ## 6. Live database
 
@@ -176,10 +179,16 @@ where attrelid = 'public.tours_operators'::regclass
 Signature: `0 / 2 / 0 / 0 / 0` = nothing applied; `6 / 0 / 1 / 1 / 0` =
 migration 1 applied; `6 / 0 / 1 / 1 / 8` = both applied.
 
-**Last observed signature: `0 / 2 / 0 / 0 / 0`** (nothing applied). A later SQL
-Editor screenshot showed a migration buffer reporting "Success. No rows
-returned", consistent with an apply, but it was never confirmed with the query
-above. Re-run it before trusting anything below.
+**Last observed signature: `7 / 0 / 1 / 1 / 0`.** Migration 1 is applied: the old
+unrestricted owner policies are gone, `Admin views all profiles` exists, and
+`submit_package_for_review` exists. Migration 2 is **not** applied
+(`column_acl_columns = 0`). **Open anomaly:** `stops_policies` is 7, but the
+migration creates exactly six policies on `tours_package_stops`. The seventh
+policy's name and definition were requested via
+`select policyname, permissive, roles, cmd, qual, with_check from pg_policies
+where tablename = 'tours_package_stops'` and must be inspected before treating
+migration 1 as fully verified — an unexpected permissive policy on this table
+would be a security hole, since the table previously had none.
 
 ## 7. Security rules in force
 
@@ -265,20 +274,25 @@ fresh sandbox.
 
 ## 10. Outstanding work
 
-1. Confirm migration 1 with the five-value query, then browser-check that
-   `/tours/admin/guides` shows applicant names and that a draft package's stops
-   read back and submit.
-2. Switch `submitPackageForReview` to the atomic `submit_package_for_review`
-   RPC — only after migration 1 is confirmed, since the RPC does not exist
-   until then.
+1. **Inspect the seventh `tours_package_stops` policy.** The signature shows 7
+   where the migration creates 6. List it with
+   `select policyname, permissive, roles, cmd, qual, with_check from pg_policies
+   where tablename = 'tours_package_stops'` and confirm it is not an
+   unintentionally permissive policy before relying on migration 1.
+2. Browser-check migration 1: `/tours/admin/guides` shows applicant names; a
+   draft package's saved stops read back; a complete draft submits.
 3. Apply and verify migration 2; the post-apply `aclexplode` grant query should
    show 8 ACL-bearing columns and no restricted column for `anon` or
    `authenticated`.
-4. Live authenticated browser E2E for the operator and guide flows — deferred by
+4. `submitPackageForReview` now calls the atomic `submit_package_for_review`
+   RPC (done in code). On a database where migration 1 is **not** applied the
+   RPC is missing and submission returns the generic failure message — keep
+   code and database in step when deploying.
+5. Live authenticated browser E2E for the operator and guide flows — deferred by
    the product owner.
-5. The `42703` undefined-column error should be resolved by the schema
+6. The `42703` undefined-column error should be resolved by the schema
    alignment but was never reproduced against a live request.
-6. Package media upload is not implemented: `PACKAGE_STORAGE_BUCKET` is
+7. Package media upload is not implemented: `PACKAGE_STORAGE_BUCKET` is
    declared but unused and `cover_image_url` / `gallery_urls` store
    operator-supplied references.
 

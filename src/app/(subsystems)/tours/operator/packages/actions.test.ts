@@ -393,145 +393,100 @@ describe("submitPackageForReview", () => {
     jest.clearAllMocks();
   });
 
-  const variantRows = [
-    {
-      variant_name: "Standard",
-      min_pax: 1,
-      max_pax: null,
-      price_per_pax: 125,
-      flat_price: null,
-      is_default: true,
-    },
-  ];
-  const stopRows = [
-    {
-      stop_order: 1,
-      location_name: "Bagasbas Beach",
-      latitude: 14.1086,
-      longitude: 122.9398,
-      description: null,
-      estimated_duration_minutes: 45,
-    },
-  ];
-
-  it("submits a complete draft package", async () => {
+  it("calls the atomic RPC once ownership and approval are confirmed", async () => {
     approveSession();
-    mockClient(
-      sessionClient({
-        tours_operators: [{ data: approvedOperator, error: null }],
-        tours_packages: [
-          { data: draftPackage, error: null },
-          { data: { id: packageId }, error: null },
-        ],
-        tours_package_price_variants: [{ data: variantRows, error: null }],
-        tours_package_stops: [{ data: stopRows, error: null }],
-      }),
-    );
+    const client = sessionClient({
+      tours_operators: [{ data: approvedOperator, error: null }],
+    });
+    mockClient(client);
 
     const result = await submitPackageForReview(packageId);
+
     expect(result).toEqual({ success: true });
-  });
-
-  it("surfaces a variant read failure instead of reporting an empty list", async () => {
-    approveSession();
-    const errorSpy = jest.spyOn(console, "error").mockImplementation(() => undefined);
-    mockClient(
-      sessionClient({
-        tours_operators: [{ data: approvedOperator, error: null }],
-        tours_packages: [{ data: draftPackage, error: null }],
-        tours_package_price_variants: [{ data: null, error: { code: "42501", message: "denied" } }],
-      }),
-    );
-
-    const result = await submitPackageForReview(packageId);
-
-    expect(result).toEqual({
-      success: false,
-      error: "Price variants could not be verified. Please try again.",
+    expect(client.rpc).toHaveBeenCalledWith("submit_package_for_review", {
+      p_package_id: packageId,
     });
-    expect(errorSpy).toHaveBeenCalled();
-    errorSpy.mockRestore();
   });
 
-  it("surfaces a stop read failure instead of reporting an empty list", async () => {
+  it("surfaces the RPC's completeness messages verbatim", async () => {
     approveSession();
-    const errorSpy = jest.spyOn(console, "error").mockImplementation(() => undefined);
     mockClient(
-      sessionClient({
-        tours_operators: [{ data: approvedOperator, error: null }],
-        tours_packages: [{ data: draftPackage, error: null }],
-        tours_package_price_variants: [{ data: variantRows, error: null }],
-        tours_package_stops: [{ data: null, error: { code: "42501", message: "denied" } }],
-      }),
+      sessionClient(
+        { tours_operators: [{ data: approvedOperator, error: null }] },
+        { error: { message: "Add at least one map stop before submitting." } },
+      ),
     );
 
     const result = await submitPackageForReview(packageId);
 
-    expect(result).toEqual({
-      success: false,
-      error: "Map stops could not be verified. Please try again.",
-    });
-    expect(errorSpy).toHaveBeenCalled();
-    errorSpy.mockRestore();
-  });
-
-  it("asks for at least one stop when the collection is genuinely empty", async () => {
-    approveSession();
-    mockClient(
-      sessionClient({
-        tours_operators: [{ data: approvedOperator, error: null }],
-        tours_packages: [{ data: draftPackage, error: null }],
-        tours_package_price_variants: [{ data: variantRows, error: null }],
-        tours_package_stops: [{ data: [], error: null }],
-      }),
-    );
-
-    const result = await submitPackageForReview(packageId);
     expect(result).toEqual({
       success: false,
       error: "Add at least one map stop before submitting.",
     });
   });
 
-  it("rejects more than one default variant", async () => {
+  it("surfaces the draft-status message verbatim", async () => {
     approveSession();
     mockClient(
-      sessionClient({
-        tours_operators: [{ data: approvedOperator, error: null }],
-        tours_packages: [{ data: draftPackage, error: null }],
-        tours_package_price_variants: [
-          {
-            data: [
-              { ...variantRows[0], is_default: true },
-              { ...variantRows[0], variant_name: "Group", is_default: true },
-            ],
-            error: null,
+      sessionClient(
+        { tours_operators: [{ data: approvedOperator, error: null }] },
+        {
+          error: {
+            message: "Not authorized to submit this package, or package is not in draft status.",
           },
-        ],
-      }),
+        },
+      ),
     );
 
     const result = await submitPackageForReview(packageId);
+
     expect(result).toEqual({
       success: false,
-      error: "Set exactly one price variant as the default before submitting.",
+      error: "Not authorized to submit this package, or package is not in draft status.",
     });
   });
 
-  it("rejects a non-draft package before reading children", async () => {
+  it("hides unexpected database errors behind a generic message", async () => {
     approveSession();
+    const errorSpy = jest.spyOn(console, "error").mockImplementation(() => undefined);
     mockClient(
-      sessionClient({
-        tours_operators: [{ data: approvedOperator, error: null }],
-        tours_packages: [{ data: { ...draftPackage, status: "pending_review" }, error: null }],
-      }),
+      sessionClient(
+        { tours_operators: [{ data: approvedOperator, error: null }] },
+        { error: { code: "42501", message: "permission denied for column profile_id" } },
+      ),
     );
 
     const result = await submitPackageForReview(packageId);
+
     expect(result).toEqual({
       success: false,
-      error: 'Package cannot be edited while status is "pending_review".',
+      error: "Could not submit package for review. Please try again.",
     });
+    expect(errorSpy).toHaveBeenCalled();
+    errorSpy.mockRestore();
+  });
+
+  it("rejects a caller who is not an approved operator before calling the RPC", async () => {
+    approveSession("tourist");
+    const client = sessionClient({});
+    mockClient(client);
+
+    const result = await submitPackageForReview(packageId);
+
+    expect(result).toEqual({
+      success: false,
+      error: "Only an approved operator can manage packages.",
+    });
+    expect(client.rpc).not.toHaveBeenCalled();
+  });
+
+  it("rejects a malformed identifier before any database call", async () => {
+    const result = await submitPackageForReview("not-a-uuid");
+    expect(result).toEqual({
+      success: false,
+      error: "The package identifier is invalid.",
+    });
+    expect(mockCreateSessionClient).not.toHaveBeenCalled();
   });
 
   it("requires a signed-in session", async () => {
