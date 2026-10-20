@@ -179,29 +179,27 @@ where attrelid = 'public.tours_operators'::regclass
 Signature: `0 / 2 / 0 / 0 / 0` = nothing applied; `6 / 0 / 1 / 1 / 0` =
 migration 1 applied; `6 / 0 / 1 / 1 / 8` = both applied.
 
-**Last observed signature: `7 / 0 / 1 / 1 / 0` — anomaly diagnosed.** Migration 1
-is applied (old unrestricted owner policies gone, `Admin views all profiles`
-present, `submit_package_for_review` present); migration 2 is not
-(`column_acl_columns = 0`). The seventh stops policy turned out to be two
-policies that exist in **no migration in this repository**, plus one of
-migration 1's policies missing:
+**Last observed signature: `6 / 0 / 1 / 1 / 0` (2026-10-20) — stops table verified.**
+Migration 1 and the corrective migration are both applied: the old unrestricted
+owner policies are gone, `Admin views all profiles` exists,
+`submit_package_for_review` exists, and `tours_package_stops` holds exactly the
+six intended policies. Migration 2 is **not** applied (`column_acl_columns = 0`)
+and is the next step.
 
-- `Operators can manage stops` — `FOR ALL`, permissive, `{authenticated}`,
-  ownership-only `qual`/`with_check` with **no draft gate and no approved
-  gate**. This let any authenticated operator insert/update/delete stops on
-  their own published or pending packages directly through PostgREST, and let
-  a pending or rejected operator do the same — re-opening the hole migration 1
-  closed. Its SELECT grant also masked the missing policy below.
-- `Public can view stops` — redundant duplicate of migration 1's
-  `Public views stops of published packages`.
-- Missing: `Operator views own package stops` (SELECT, own packages, any
-  status).
-
-`supabase/migrations/20261020120000_stops_policy_correction.sql` (draft, not
-applied) drops the two foreign policies and recreates the missing SELECT.
-After it, the five-value signature should read `6 / 0 / 1 / 1 / 0` and the
-stops table should show exactly the six intended policies. Apply it **before**
-migration 2.
+Historical note, resolved: between migration 1 and the correction the signature
+read `7 / 0 / 1 / 1 / 0` because two policies existed that appear in no
+migration in this repository — `Operators can manage stops` (`FOR ALL`,
+ownership-only, no draft or approved gate, a live self-publish hole on stops)
+and `Public can view stops` (redundant duplicate) — while migration 1's
+`Operator views own package stops` was missing. The unsafe policy's SELECT
+grant masked the missing one, so the UI still worked.
+`supabase/migrations/20261020120000_stops_policy_correction.sql` dropped the
+two and recreated the missing SELECT; it is now **applied**. The channel that
+created the foreign policies was outside this repository (dashboard saved query
+or manual edit) and should be audited. A direct-attack control test was
+designed but skipped: no operator owns both a draft and a non-draft package
+with stops, so it could not discriminate; policy listing plus signature plus
+browser checks stand as the verification.
 
 ## 7. Security rules in force
 
@@ -271,6 +269,13 @@ enforced with column-level `REVOKE`/`GRANT`:
 Migration 2 rewrites grants that migration 1's policy subqueries depend on, so
 applying it first would make a regression hard to attribute.
 
+### `20261020120000_stops_policy_correction.sql` — APPLIED 2026-10-20
+
+Drops the two stops policies that existed outside this repository
+(`Operators can manage stops`, `Public can view stops`) and recreates
+migration 1's missing `Operator views own package stops`. See §6 for the
+incident note and the verification signature.
+
 ### Safety notes for applying
 
 - Each file is wrapped in `begin;` / `commit;`; a failure rolls back cleanly.
@@ -287,11 +292,10 @@ fresh sandbox.
 
 ## 10. Outstanding work
 
-1. **Apply and verify the stops policy correction**
-   (`20261020120000_stops_policy_correction.sql`): drops the unsafe
-   ownership-only `FOR ALL` policy and the redundant public SELECT, restores
-   the missing own-stops SELECT. Verify the table shows exactly six policies
-   and that a published package's stops render read-only with saves rejected.
+1. **Done (2026-10-20): stops policy correction applied and verified.**
+   `20261020120000_stops_policy_correction.sql` dropped the unsafe
+   ownership-only `FOR ALL` policy and the redundant public SELECT and restored
+   the missing own-stops SELECT; the signature now reads `6 / 0 / 1 / 1 / 0`.
 2. Browser-check migration 1: `/tours/admin/guides` shows applicant names; a
    draft package's saved stops read back; a complete draft submits.
 3. Apply and verify migration 2; the post-apply `aclexplode` grant query should
