@@ -42,6 +42,12 @@ export function validatePriceVariant(variant: PriceVariantInput): string | null 
   if (variant.pricePerPax === null && variant.flatPrice === null) {
     return "Either price per pax or flat price must be set.";
   }
+  if (
+    (variant.pricePerPax !== null && variant.pricePerPax < 0) ||
+    (variant.flatPrice !== null && variant.flatPrice < 0)
+  ) {
+    return "Prices cannot be negative.";
+  }
   return null;
 }
 
@@ -60,9 +66,13 @@ export function validatePackageStop(stop: PackageStopInput): string | null {
   }
   if (
     stop.estimatedDurationMinutes !== null &&
-    (!Number.isFinite(stop.estimatedDurationMinutes) || stop.estimatedDurationMinutes < 0)
+    (!Number.isFinite(stop.estimatedDurationMinutes) ||
+      !Number.isInteger(stop.estimatedDurationMinutes) ||
+      stop.estimatedDurationMinutes < 0)
   ) {
-    return "Estimated duration must be a non-negative number of minutes.";
+    // estimated_duration_minutes is an integer column: Postgres would silently
+    // round a fractional value on assignment, so reject it here instead.
+    return "Estimated duration must be a whole number of minutes, 0 or more.";
   }
   return null;
 }
