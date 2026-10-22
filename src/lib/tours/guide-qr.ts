@@ -1,11 +1,13 @@
 import QRCode from "qrcode";
 
 /**
- * The badge QR contains only the public guide row UUID, never an ID number,
- * document path, consent value, or other personal/sensitive data.
+ * The badge QR contains only the public guide row UUID and verification URL,
+ * never an ID number, document path, consent value, or other personal/sensitive data.
  */
 export function createGuideQrPayload(guideId: string): string {
-  return `CONNECT-DAET-GUIDE:${guideId}`;
+  // Use full URL so scanning apps can open directly
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+  return `${baseUrl}/tours/verify-guide/${guideId}`;
 }
 
 export async function createGuideQrPngDataUrl(guideId: string): Promise<string> {

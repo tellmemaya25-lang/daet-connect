@@ -91,12 +91,20 @@ export default async function MyBookingsPage() {
               View and manage your tour bookings
             </p>
           </div>
-          <Link
-            href="/tours/browse"
-            className="rounded-full bg-daet-forest px-6 py-3 text-sm font-bold text-white transition hover:bg-daet-ink"
-          >
-            Browse Tours
-          </Link>
+          <div className="flex gap-3">
+            <Link
+              href="/tours/scan-guide"
+              className="rounded-full border-2 border-daet-forest bg-white px-6 py-3 text-sm font-bold text-daet-forest transition hover:bg-daet-forest hover:text-white"
+            >
+              📱 Scan Guide QR
+            </Link>
+            <Link
+              href="/tours/browse"
+              className="rounded-full bg-daet-forest px-6 py-3 text-sm font-bold text-white transition hover:bg-daet-ink"
+            >
+              Browse Tours
+            </Link>
+          </div>
         </div>
 
         {/* Back Button */}
